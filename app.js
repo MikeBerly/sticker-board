@@ -3,8 +3,10 @@
  */
 import store from './store.js';
 import { defaultData, normalize, balance, undoneIds, sortedTiers, uid } from './model.js';
+import { EMOJI_GROUPS, suggestEmoji } from './emoji.js';
 
 const UNLOCK_MINUTES = 5;
+const POTION_COLORS = ['#8b5cf6', '#6366f1', '#0ea5e9', '#14b8a6', '#22c55e', '#eab308', '#f97316', '#ef4444', '#ec4899', '#a16207'];
 const app = document.getElementById('app');
 const modalRoot = document.getElementById('modal');
 const toastEl = document.getElementById('toast');
@@ -12,7 +14,7 @@ const toastEl = document.getElementById('toast');
 let data;
 let unlockedUntil = 0;
 let lockTimer = null;
-let pop = null; // which sticker cells to animate on the next render
+let pop = null; // { kidId, from }: animate that kid's potion from an earlier level on the next render
 
 /* ---------- helpers ---------- */
 const esc = (s) =>
@@ -200,8 +202,8 @@ function grownUpCheck() {
 }
 
 /* ---------- modals, toasts, fun ---------- */
-function openModal(html) {
-  modalRoot.innerHTML = `<div class="backdrop"><div class="sheet" role="dialog" aria-modal="true">${html}</div></div>`;
+function openModal(html, extraClass = '') {
+  modalRoot.innerHTML = `<div class="backdrop"><div class="sheet ${extraClass}" role="dialog" aria-modal="true">${html}</div></div>`;
   modalRoot.hidden = false;
   return modalRoot.querySelector('.sheet');
 }
@@ -252,6 +254,38 @@ function promptDialog(title, body, placeholder = '') {
       if (!v) return;
       closeModal();
       resolve(v);
+    };
+  });
+}
+
+function emojiPicker(title, suggestions, current) {
+  return new Promise((resolve) => {
+    const btns = (list) =>
+      list.map((e) => `<button type="button" class="emoji-choice${e === current ? ' on' : ''}" data-emoji="${esc(e)}">${esc(e)}</button>`).join('');
+    const sugg = suggestions.length ? `<h3>Suggested</h3><div class="emoji-grid">${btns(suggestions)}</div>` : '';
+    const groups = EMOJI_GROUPS.map((g) => `<h3>${esc(g.name)}</h3><div class="emoji-grid">${btns(g.list)}</div>`).join('');
+    const s = openModal(
+      `<div class="picker-head"><h2>${esc(title)}</h2><button type="button" class="icon-btn small" data-k="close" aria-label="Close">✕</button></div>
+       <div class="picker-body">
+         ${sugg}${groups}
+         <h3>Or type any emoji</h3>
+         <form class="row start"><input class="field emoji-in" aria-label="Type an emoji"><button class="btn small go">Use it</button></form>
+       </div>`,
+      'wide'
+    );
+    const done = (v) => {
+      closeModal();
+      resolve(v);
+    };
+    s.addEventListener('click', (e) => {
+      const pick = e.target.closest('[data-emoji]');
+      if (pick) return done(pick.dataset.emoji);
+      if (e.target.closest('[data-k=close]')) done(null);
+    });
+    s.querySelector('form').onsubmit = (e) => {
+      e.preventDefault();
+      const v = firstGrapheme(s.querySelector('form input').value);
+      if (v) done(v);
     };
   });
 }
@@ -327,7 +361,7 @@ async function award(kid, job) {
   const ev = { id: uid(), type: 'earn', kidId: kid.id, amount: job.stickers, label: job.name, emoji: job.emoji, at: nowIso() };
   data.events.push(ev);
   await commit();
-  pop = { kidId: kid.id, from: before, to: before + job.stickers };
+  pop = { kidId: kid.id, from: before };
   render();
   celebrate(kid.sticker);
   chime();
@@ -346,10 +380,12 @@ async function redeem(kid, tier, label, emoji, { skipConfirm = false } = {}) {
     );
     if (!ok) return;
   }
+  const before = balance(data, kid.id);
   const ev = { id: uid(), type: 'redeem', kidId: kid.id, amount: tier.cost, label, emoji, tier: tier.id, at: nowIso() };
   data.events.push(ev);
   await commit();
   location.hash = kidHref(kid);
+  pop = { kidId: kid.id, from: before };
   render();
   celebrate(emoji, 30);
   chime([783.99, 659.25, 783.99, 1046.5, 1318.5]);
@@ -463,8 +499,8 @@ const actions = {
     if (!k) return;
     const item =
       list === 'jobs'
-        ? { id: uid(), name: 'New job', emoji: '✅', stickers: 1 }
-        : { id: uid(), name: 'New prize', emoji: '🎁', tier: 'small' };
+        ? { id: uid(), name: 'New job', emoji: '✅', stickers: 1, autoEmoji: true }
+        : { id: uid(), name: 'New prize', emoji: '🎁', tier: 'treat', autoEmoji: true };
     k[list].push(item);
     await commit();
     render();
@@ -499,6 +535,30 @@ const actions = {
     if (!ok) return;
     data.kids = data.kids.filter((x) => x.id !== kid);
     data.events = data.events.filter((e) => e.kidId !== kid);
+    await commit();
+    render();
+  },
+  'pick-emoji': async ({ kid, list, item, target }) => {
+    const k = kidById(kid);
+    if (!k) return;
+    const obj = target === 'item' ? k[list]?.find((x) => x.id === item) : k;
+    if (!obj) return;
+    const field = target === 'item' ? 'emoji' : target; // 'avatar' or 'sticker'
+    const title =
+      target === 'item' ? `Icon for “${obj.name}”` : target === 'avatar' ? `${k.name}'s picture` : `${k.name}'s sticker`;
+    const chosen = await emojiPicker(title, target === 'item' ? suggestEmoji(obj.name) : [], obj[field]);
+    if (!chosen) return;
+    obj[field] = chosen;
+    if (target === 'item') obj.autoEmoji = false; // a hand-picked icon is never replaced automatically
+    if (isUnlocked()) extendUnlock();
+    await commit();
+    render();
+  },
+  'set-color': async ({ kid, color }) => {
+    const k = kidById(kid);
+    if (!k) return;
+    k.color = color;
+    if (isUnlocked()) extendUnlock();
     await commit();
     render();
   },
@@ -540,8 +600,23 @@ app.addEventListener('change', async (e) => {
     case 'kid-name': kid.name = t.value.trim() || kid.name; t.value = kid.name; break;
     case 'kid-avatar': kid.avatar = firstGrapheme(t.value) || kid.avatar; t.value = kid.avatar; break;
     case 'kid-sticker': kid.sticker = firstGrapheme(t.value) || kid.sticker; t.value = kid.sticker; break;
-    case 'kid-color': kid.color = t.value; break;
-    case 'item-name': item.name = t.value.trim() || item.name; t.value = item.name; break;
+    case 'kid-color':
+      kid.color = t.value;
+      if (isUnlocked()) extendUnlock();
+      await commit();
+      return render(); // refresh swatches and the preview jar
+    case 'item-name': {
+      item.name = t.value.trim() || item.name;
+      t.value = item.name;
+      // Until a parent hand-picks an icon, keep it matched to the name.
+      const guess = item.autoEmoji ? suggestEmoji(item.name)[0] : null;
+      if (guess) {
+        item.emoji = guess;
+        const btn = t.closest('.item')?.querySelector('.emoji-btn');
+        if (btn) btn.textContent = guess;
+      }
+      break;
+    }
     case 'item-emoji': item.emoji = firstGrapheme(t.value) || item.emoji; t.value = item.emoji; break;
     case 'item-stickers': {
       const n = toInt(t.value, 1, 99);
@@ -583,26 +658,76 @@ function statusText(bal) {
   return canGet ? `Can get a ${canGet.name.toLowerCase()} prize ${canGet.emoji} · ${need}` : need;
 }
 
-function gridHTML(kid, bal) {
+/* ---------- the potion jar ---------- */
+const JAR_PATH =
+  'M68,30 L68,46 C68,60 22,60 22,94 L22,236 Q22,264 50,264 L170,264 Q198,264 198,236 L198,94 C198,60 152,60 152,46 L152,30';
+const JAR_FLOOR = 258; // where an empty jar's potion sits
+const JAR_SPAN = 162; // how far the potion rises to reach the top prize
+const rand = (i) => {
+  const x = Math.sin(i * 12.9898 + 78.233) * 43758.5453;
+  return x - Math.floor(x);
+};
+
+function jarHTML(kid, bal) {
   const tiers = sortedTiers(data);
   const top = tiers.length ? tiers[tiers.length - 1].cost : 20;
-  const shown = Math.max(bal, 0);
-  const most = Math.max(top, shown);
-  const cols = most > 30 ? 10 : 5;
-  const n = Math.ceil(most / cols) * cols;
-  const p = pop && pop.kidId === kid.id ? pop : null;
-  let cells = '';
-  for (let i = 0; i < n; i++) {
-    const filled = i < shown;
-    const tier = tiers.find((t) => t.cost === i + 1);
-    const isNew = p && i >= p.from && i < p.to;
-    cells += `<div class="cell${filled ? ' filled' : ''}${tier ? ' tier' : ''}${isNew ? ' pop' : ''}"${
-      isNew ? ` style="animation-delay:${(i - p.from) * 140}ms"` : ''
-    }>${filled ? `<span class="stk">${esc(kid.sticker)}</span>` : ''}${
-      tier ? `<span class="tier-badge" title="${esc(tier.name)} prize">${tier.emoji}</span>` : ''
-    }</div>`;
-  }
-  return `<div class="grid cols-${cols}">${cells}</div>`;
+  const level = (c) => JAR_FLOOR - (Math.min(Math.max(c, 0), top * 1.3) / top) * JAR_SPAN;
+  const y = level(bal);
+  const from = pop && pop.kidId === kid.id ? level(pop.from) - y : 0;
+  const key = (kid.id.replace(/[^\w-]/g, '') || 'k') + Math.floor(Math.random() * 1e6);
+
+  let wave = `M-110,${y}`;
+  for (let i = 0; i < 6; i++) wave += ' q27.5,-7 55,0 t55,0';
+  wave += ` L550,${y + 30} L-110,${y + 30} Z`;
+  const deep = JAR_FLOOR - y > 22;
+  const bubbles = deep
+    ? Array.from({ length: 7 }, (_, i) => {
+        const bx = (40 + rand(i + 40) * 140).toFixed(1);
+        const r = (3 + rand(i + 50) * 4).toFixed(1);
+        return `<circle class="bubble" cx="${bx}" cy="252" r="${r}" style="--rise:${(y - 242).toFixed(1)}px;animation-delay:${(rand(i + 60) * 3).toFixed(2)}s"/>`;
+      }).join('')
+    : '';
+  const sparkles = deep
+    ? [0, 1, 2].map((i) => `<text class="sparkle" x="${50 + i * 55}" y="${Math.min(Math.max(y + 34, 110) + i * 26, 250)}" style="animation-delay:${i * 0.5}s">✨</text>`).join('')
+    : '';
+
+  // Prize tags sit beside the jar; nudge them apart if two costs are close together.
+  let lastTag = Infinity;
+  const marks = tiers
+    .map((t) => {
+      const ty = level(t.cost);
+      const tagY = Math.min(ty, lastTag - 28);
+      lastTag = tagY;
+      const got = bal >= t.cost;
+      return `<line class="tline${got ? ' got' : ''}" x1="27" x2="193" y1="${ty}" y2="${ty}"/>
+        <g class="tag${got ? ' got' : ''}" transform="translate(204 ${tagY})">
+          <rect x="0" y="-13" width="54" height="26" rx="13"/>
+          <text class="te" x="15" y="1">${t.emoji}</text><text class="tn" x="38" y="1">${t.cost}</text>
+        </g>`;
+    })
+    .join('');
+
+  return `<svg class="jar" viewBox="0 0 262 272" role="img" aria-label="${esc(kid.name)}'s potion jar: ${Math.max(bal, 0)} stickers">
+    <defs>
+      <clipPath id="clip-${key}"><path d="${JAR_PATH} Z"/></clipPath>
+      <linearGradient id="liq-${key}" x1="0" y1="0" x2="0" y2="1">
+        <stop offset="0" stop-color="${kid.color}" stop-opacity=".75"/><stop offset="1" stop-color="${kid.color}"/>
+      </linearGradient>
+    </defs>
+    <path class="glass-bg" d="${JAR_PATH} Z"/>
+    <g clip-path="url(#clip-${key})">
+      <g class="liquid" style="--from:${from.toFixed(1)}px">
+        <path class="wave" d="${wave}" fill="${kid.color}" opacity=".55"/>
+        <rect x="0" y="${y + 4}" width="220" height="300" fill="url(#liq-${key})"/>
+        ${bubbles}${sparkles}
+      </g>
+    </g>
+    ${marks}
+    <path class="glass" d="${JAR_PATH}"/>
+    <path class="shine" d="M38,112 L38,226"/>
+    <rect x="58" y="8" width="104" height="25" rx="8" fill="${kid.color}"/>
+    <rect x="64" y="11" width="92" height="7" rx="3.5" fill="#fff" opacity=".35"/>
+  </svg>`;
 }
 
 function boardView() {
@@ -615,7 +740,7 @@ function boardView() {
           <span class="kid-name">${esc(kid.name)}</span>
           <span class="total"><b>${Math.max(bal, 0)}</b></span>
         </div>
-        ${gridHTML(kid, bal)}
+        ${jarHTML(kid, bal)}
         <p class="status">${esc(statusText(bal))}</p>
       </a>`;
     })
@@ -648,7 +773,7 @@ function kidView(kid) {
     `<main class="kid-page" style="--kid:${kid.color}">
       <section class="kid-progress">
         <div class="big-total"><b>${Math.max(bal, 0)}</b><span>${esc(kid.sticker)} stickers</span></div>
-        ${gridHTML(kid, bal)}
+        ${jarHTML(kid, bal)}
         <p class="status">${esc(statusText(bal))}</p>
       </section>
       <section class="jobs">
@@ -765,7 +890,7 @@ function kidSettings(kid) {
   const jobs = kid.jobs
     .map(
       (j) => `<div class="item">
-        <input class="field emoji-in" data-field="item-emoji" ${ref('jobs', j)} value="${esc(j.emoji)}" aria-label="Job picture">
+        <button class="emoji-btn" data-action="pick-emoji" data-target="item" ${ref('jobs', j)} aria-label="Change icon for ${esc(j.name)}">${esc(j.emoji)}</button>
         <input class="field name-in" data-field="item-name" ${ref('jobs', j)} value="${esc(j.name)}" aria-label="Job name">
         <label class="num"><input class="field" type="number" inputmode="numeric" min="1" max="99" data-field="item-stickers" ${ref('jobs', j)} value="${j.stickers}" aria-label="Stickers">${esc(kid.sticker)}</label>
         ${del('jobs', j)}
@@ -775,7 +900,7 @@ function kidSettings(kid) {
   const prizes = kid.prizes
     .map(
       (p) => `<div class="item">
-        <input class="field emoji-in" data-field="item-emoji" ${ref('prizes', p)} value="${esc(p.emoji)}" aria-label="Prize picture">
+        <button class="emoji-btn" data-action="pick-emoji" data-target="item" ${ref('prizes', p)} aria-label="Change icon for ${esc(p.name)}">${esc(p.emoji)}</button>
         <input class="field name-in" data-field="item-name" ${ref('prizes', p)} value="${esc(p.name)}" aria-label="Prize name">
         <select class="field" data-field="item-tier" ${ref('prizes', p)} aria-label="Prize size">${tierOptions(p.tier)}</select>
         ${del('prizes', p)}
@@ -787,10 +912,20 @@ function kidSettings(kid) {
     <h2>${esc(kid.avatar)} ${esc(kid.name)}</h2>
     <div class="kid-fields">
       <label>Name<input class="field" data-field="kid-name" ${k} value="${esc(kid.name)}"></label>
-      <label>Picture<input class="field emoji-in" data-field="kid-avatar" ${k} value="${esc(kid.avatar)}"></label>
-      <label>Sticker<input class="field emoji-in" data-field="kid-sticker" ${k} value="${esc(kid.sticker)}"></label>
-      <label>Color<input type="color" data-field="kid-color" ${k} value="${kid.color}"></label>
+      <label>Picture<button class="emoji-btn" data-action="pick-emoji" data-target="avatar" ${k} aria-label="Change ${esc(kid.name)}'s picture">${esc(kid.avatar)}</button></label>
+      <label>Sticker<button class="emoji-btn" data-action="pick-emoji" data-target="sticker" ${k} aria-label="Change ${esc(kid.name)}'s sticker">${esc(kid.sticker)}</button></label>
     </div>
+    <h3>Potion color</h3>
+    <div class="potion-row">
+      <div class="jar-preview">${jarHTML(kid, balance(data, kid.id))}</div>
+      <div class="swatches">
+        ${POTION_COLORS.map(
+          (c) => `<button class="swatch${c.toLowerCase() === kid.color.toLowerCase() ? ' on' : ''}" style="background:${c}" data-action="set-color" ${k} data-color="${c}" aria-label="Potion color ${c}"></button>`
+        ).join('')}
+        <label class="swatch custom" title="Pick any color"><input type="color" data-field="kid-color" ${k} value="${kid.color}" aria-label="Pick any potion color">🎨</label>
+      </div>
+    </div>
+    <p class="hint">Icons pick themselves from the name you type. Tap an icon to choose a different one.</p>
     <h3>Jobs</h3>
     <div class="items">${jobs || '<p class="hint">No jobs yet.</p>'}</div>
     <button class="btn ghost small" data-action="add-item" ${k} data-list="jobs">＋ Add job</button>
@@ -883,7 +1018,7 @@ async function init() {
     console.error('Saved data was unreadable', err);
     data = defaultData();
   }
-  if (!saved) await commit();
+  if (!saved || saved.schemaVersion !== data.schemaVersion) await commit();
 
   window.addEventListener('hashchange', () => {
     render();

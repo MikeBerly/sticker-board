@@ -1,8 +1,8 @@
 // Offline support: serve the app from the cache, and refresh the cache in the background.
 // After changing any app file, bump CACHE so devices pick up the new version on next launch.
-const CACHE = 'sticker-board-v1';
+const CACHE = 'sticker-board-v2';
 const FILES = [
-  './', './index.html', './styles.css', './app.js', './model.js', './store.js',
+  './', './index.html', './styles.css', './app.js', './model.js', './store.js', './emoji.js',
   './manifest.webmanifest', './icon.svg', './icon-180.png', './icon-512.png',
 ];
 

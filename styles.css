@@ -96,40 +96,27 @@ a { color: inherit; text-decoration: none; }
 .total b { font-size: clamp(48px, 6vw, 64px); font-weight: 900; color: var(--kid); }
 .status { margin: 0; font-size: clamp(17px, 2.2vw, 22px); font-weight: 800; text-align: center; color: var(--muted); }
 
-/* ---------- sticker grid ---------- */
-.grid { display: grid; gap: 10px; }
-.grid.cols-5 { grid-template-columns: repeat(5, 1fr); }
-.grid.cols-10 { grid-template-columns: repeat(10, 1fr); gap: 6px; }
-.cell {
-  position: relative;
-  aspect-ratio: 1;
-  border-radius: 18px;
-  border: 3px dashed var(--line);
-  background: var(--soft);
-  display: grid; place-items: center;
-}
-.grid.cols-10 .cell { border-radius: 12px; }
-.cell .stk { font-size: clamp(22px, 4vw, 46px); line-height: 1; }
-.grid.cols-10 .cell .stk { font-size: clamp(14px, 2vw, 26px); }
-.cell.filled {
-  border: 3px solid color-mix(in srgb, var(--kid) 55%, white);
-  background: color-mix(in srgb, var(--kid) 16%, white);
-}
-.cell.tier { border: 3px solid var(--gold); }
-.cell .tier-badge {
-  position: absolute; top: -10px; right: -10px;
-  width: 34px; height: 34px; border-radius: 50%;
-  background: #fff; border: 2px solid var(--gold);
-  display: grid; place-items: center; font-size: 19px; line-height: 1;
-}
-.cell.tier:not(.filled) .tier-badge {
-  position: static; width: auto; height: auto;
-  border: 0; background: none; opacity: 0.5;
-  font-size: clamp(20px, 3.4vw, 38px);
-}
-.grid.cols-10 .cell .tier-badge { width: 26px; height: 26px; font-size: 14px; top: -8px; right: -8px; }
-.grid.cols-10 .cell.tier:not(.filled) .tier-badge { font-size: clamp(14px, 2vw, 24px); }
-.cell.pop { animation: pop 0.55s cubic-bezier(0.3, 1.6, 0.5, 1) both; }
+/* ---------- potion jar ---------- */
+.jar { display: block; width: 100%; height: auto; overflow: visible; margin: 0 auto; }
+.kid-card .jar { max-height: max(240px, calc(100dvh - 355px)); }
+.kid-progress .jar { max-height: max(240px, calc(100dvh - 365px)); }
+.glass-bg { fill: #f3fbff; }
+.glass { fill: none; stroke: #a9c7d6; stroke-width: 5; stroke-linejoin: round; }
+.shine { stroke: #fff; stroke-width: 7; stroke-linecap: round; opacity: 0.8; }
+.tline { stroke: #c9b8a6; stroke-width: 2; stroke-dasharray: 5 6; }
+.tline.got { stroke: var(--gold); }
+.tag rect { fill: #fff; stroke: #e2d4c4; stroke-width: 2; }
+.tag.got rect { fill: #fde68a; stroke: var(--gold); }
+.tag text { font-size: 15px; text-anchor: middle; dominant-baseline: central; }
+.tag .tn { font-weight: 900; fill: var(--ink); }
+.liquid { animation: rise 1.1s cubic-bezier(0.3, 1.2, 0.5, 1) both; }
+.wave { animation: wave 2.6s linear infinite; }
+.bubble { fill: #fff; opacity: 0; animation: bubble 3s ease-in infinite; }
+.sparkle { font-size: 14px; animation: twinkle 1.8s ease-in-out infinite; }
+@keyframes rise { from { transform: translateY(var(--from, 0px)); } }
+@keyframes wave { to { transform: translateX(110px); } }
+@keyframes bubble { 0% { transform: translateY(0); opacity: 0; } 15% { opacity: 0.8; } 100% { transform: translateY(var(--rise)); opacity: 0; } }
+@keyframes twinkle { 50% { opacity: 0.2; } }
 
 /* ---------- kid page ---------- */
 .kid-page {
@@ -277,20 +264,20 @@ input[type='color'] { width: 64px; height: 48px; border: 2px solid var(--line); 
 .confetti span { position: absolute; top: -70px; animation-name: fall; animation-timing-function: ease-in; animation-fill-mode: forwards; }
 
 @keyframes fall { to { transform: translateY(calc(100vh + 120px)) rotate(var(--spin)); } }
-@keyframes pop { 0% { transform: scale(0) rotate(-25deg); } 100% { transform: scale(1) rotate(0); } }
 @keyframes shake { 25% { transform: translateX(-10px); } 75% { transform: translateX(10px); } }
 @keyframes fade { from { opacity: 0; } }
 
 @media (prefers-reduced-motion: reduce) {
   .confetti { display: none; }
-  .cell.pop, .shake { animation: none; }
+  .liquid, .wave, .bubble, .sparkle, .shake { animation: none; }
+  .bubble { opacity: 0.6; }
 }
 
 /* iPad portrait and smaller */
 @media (max-width: 900px), (orientation: portrait) {
   .kid-page { grid-template-columns: 1fr; }
   .kid-progress { padding: 18px 24px; gap: 12px; }
-  .kid-progress .grid { width: 100%; max-width: 440px; margin: 0 auto; }
+  .kid-progress .jar { max-height: max(260px, calc(100dvh - 770px)); }
   .big-total b { font-size: 72px; }
 }
 @media (max-width: 600px) {
@@ -302,3 +289,29 @@ input[type='color'] { width: 64px; height: 48px; border: 2px solid var(--line); 
   .stat b { font-size: 30px; }
   .item { flex-wrap: wrap; }
 }
+
+/* ---------- potion color + icon picker (settings) ---------- */
+.potion-row { display: flex; align-items: center; gap: 18px; flex-wrap: wrap; }
+.jar-preview { width: 120px; flex: none; }
+.swatches { display: flex; flex-wrap: wrap; gap: 10px; flex: 1; min-width: 220px; }
+.swatch {
+  width: 48px; height: 48px; border-radius: 50%; border: 4px solid #fff; padding: 0;
+  box-shadow: 0 0 0 2px var(--line); cursor: pointer; display: grid; place-items: center; font-size: 22px;
+}
+.swatch.on { box-shadow: 0 0 0 3px var(--ink); }
+.swatch.custom { background: conic-gradient(#ef4444, #eab308, #22c55e, #0ea5e9, #8b5cf6, #ec4899, #ef4444); position: relative; overflow: hidden; }
+.swatch.custom input { position: absolute; inset: 0; opacity: 0; width: 100%; height: 100%; cursor: pointer; }
+.emoji-btn {
+  width: 56px; height: 48px; flex: none; border-radius: 14px; border: 2px solid var(--line);
+  background: var(--soft); font-size: 28px; line-height: 1; padding: 0;
+}
+.emoji-btn:active { transform: scale(0.95); }
+.sheet.wide { width: min(640px, 100%); max-height: 86dvh; display: flex; flex-direction: column; padding: 20px 20px 16px; }
+.picker-head { display: flex; align-items: center; gap: 12px; }
+.picker-head h2 { flex: 1; margin: 0; }
+.picker-body { overflow-y: auto; -webkit-overflow-scrolling: touch; margin-top: 8px; }
+.picker-body h3 { margin: 14px 0 8px; font-size: 16px; color: var(--muted); }
+.emoji-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(52px, 1fr)); gap: 6px; }
+.emoji-choice { height: 52px; border-radius: 14px; border: 2px solid transparent; background: #f6f0e8; font-size: 28px; padding: 0; }
+.emoji-choice.on { border-color: var(--ink); background: #fff; }
+.emoji-choice:active { transform: scale(0.92); }

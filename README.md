@@ -10,6 +10,7 @@ A sticker reward board for Shae and Ellis. It runs as a web app, works offline, 
 | `styles.css` | Colors, sizes and layout |
 | `app.js` | The screens: board, kid page, prizes, history, settings |
 | `model.js` | The shape of the data, the starter data and the sticker math |
+| `emoji.js` | Icon picker choices, and the words that suggest each icon |
 | `store.js` | **The only file that saves or loads data.** Swap this file to add sync. |
 | `sw.js` | Offline support |
 | `manifest.webmanifest`, `icon*` | Home Screen name and icon |
@@ -36,6 +37,8 @@ The app starts with Shae at 15 stickers and Ellis at 22, their current jobs, and
 - **Award a sticker:** tap a kid, then tap a job. Enter the PIN if asked. It stays unlocked for 5 minutes; tap **🔓 Lock** to lock it sooner.
 - **Mistake?** Tap **Undo** in the message that appears, or undo any entry from that kid's 📜 History.
 - **Walmart day:** tap a kid, then **🎁 Get a prize**. Pick a wish-list prize, or tap **Something else…** and type what they chose.
+- **Potion jar:** each kid's potion rises as they earn stickers. Prize tags beside the jar turn gold at 5 🍬 Treat, 10 🎈 Small, 20 🎁 Medium and 30 🏆 Large. You can change those costs in ⚙️ Settings, and pick each kid's potion color there too.
+- **Icons:** when you type a job or prize name, the icon picks itself ("Feed the dog" → 🐶). Tap any icon to choose another one from the picker. An icon you've picked by hand never changes on its own.
 - **Forgot the PIN?** Tap "Forgot PIN?" and answer the grown-up math question.
 
 ## Backups

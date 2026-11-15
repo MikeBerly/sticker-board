@@ -15,24 +15,29 @@
  * Totals are never stored: a kid's total = earned − redeemed, skipping undone events.
  */
 
-export const SCHEMA_VERSION = 1;
+export const SCHEMA_VERSION = 2;
+// v1 had 3 tiers (small 5, medium 10, large 20). v2 adds a tier at the bottom:
+// treat 5, small 10, medium 20, large 30. Old tier ids shift down so costs stay the same.
+const V1_TIER_RENAME = { small: 'treat', medium: 'small', large: 'medium' };
 
 export const uid = () =>
   crypto.randomUUID ? crypto.randomUUID() : Date.now().toString(36) + Math.random().toString(36).slice(2);
 
 const DEFAULT_TIERS = [
-  { id: 'small', name: 'Small', emoji: '🍬', cost: 5 },
-  { id: 'medium', name: 'Medium', emoji: '🎁', cost: 10 },
-  { id: 'large', name: 'Large', emoji: '🏆', cost: 20 },
+  { id: 'treat', name: 'Treat', emoji: '🍬', cost: 5 },
+  { id: 'small', name: 'Small', emoji: '🎈', cost: 10 },
+  { id: 'medium', name: 'Medium', emoji: '🎁', cost: 20 },
+  { id: 'large', name: 'Large', emoji: '🏆', cost: 30 },
 ];
 
 export function defaultData() {
   const job = (name, emoji, stickers) => ({ id: uid(), name, emoji, stickers });
   const prize = (name, emoji, tier) => ({ id: uid(), name, emoji, tier });
   const starterPrizes = () => [
-    prize('Treat', '🍭', 'small'),
-    prize('Small toy', '🪀', 'medium'),
-    prize('Big toy', '🧸', 'large'),
+    prize('Treat', '🍭', 'treat'),
+    prize('Small toy', '🪀', 'small'),
+    prize('Bigger toy', '🧸', 'medium'),
+    prize('Big toy', '🚂', 'large'),
   ];
   const kids = [
       {
@@ -80,7 +85,11 @@ export function normalize(raw) {
     return Number.isFinite(n) && n >= min ? n : fallback;
   };
 
-  const tiersIn = Array.isArray(d.settings?.tiers) ? d.settings.tiers : [];
+  const version = Number(d.schemaVersion) || 1;
+  const fixTier = (id) => (version < 2 && V1_TIER_RENAME[id]) || id;
+  const tiersIn = (Array.isArray(d.settings?.tiers) ? d.settings.tiers : [])
+    .filter((t) => t && typeof t === 'object')
+    .map((t) => ({ ...t, id: fixTier(t.id) }));
   const tiers = DEFAULT_TIERS.map((t) => {
     const saved = tiersIn.find((x) => x && x.id === t.id);
     return { ...t, cost: int(saved?.cost, 1, t.cost) };
@@ -96,10 +105,12 @@ export function normalize(raw) {
     color: /^#[0-9a-f]{6}$/i.test(k.color) ? k.color : '#8b5cf6',
     jobs: list(k.jobs).map((j) => ({
       id: str(j.id, uid()), name: str(j.name, 'Job'), emoji: str(j.emoji, '✅'), stickers: int(j.stickers, 1, 1),
+      ...(j.autoEmoji === true ? { autoEmoji: true } : {}),
     })),
     prizes: list(k.prizes).map((p) => ({
       id: str(p.id, uid()), name: str(p.name, 'Prize'), emoji: str(p.emoji, '🎁'),
-      tier: tierIds.has(p.tier) ? p.tier : 'small',
+      tier: tierIds.has(fixTier(p.tier)) ? fixTier(p.tier) : 'treat',
+      ...(p.autoEmoji === true ? { autoEmoji: true } : {}),
     })),
   }));
 
@@ -111,7 +122,7 @@ export function normalize(raw) {
         ? { id: str(e.id, uid()), type: 'undo', ref: e.ref, kidId: str(e.kidId), at: str(e.at, new Date().toISOString()) }
         : {
             id: str(e.id, uid()), type: e.type, kidId: e.kidId, amount: int(e.amount, 0, 0),
-            label: str(e.label), emoji: str(e.emoji), ...(e.tier ? { tier: String(e.tier) } : {}),
+            label: str(e.label), emoji: str(e.emoji), ...(e.tier ? { tier: fixTier(String(e.tier)) } : {}),
             at: str(e.at, new Date().toISOString()),
           }
     );
