@@ -315,3 +315,13 @@ input[type='color'] { width: 64px; height: 48px; border: 2px solid var(--line); 
 .emoji-choice { height: 52px; border-radius: 14px; border: 2px solid transparent; background: #f6f0e8; font-size: 28px; padding: 0; }
 .emoji-choice.on { border-color: var(--ink); background: #fff; }
 .emoji-choice:active { transform: scale(0.92); }
+
+/* ---------- sign-in (synced version only) ---------- */
+.signin { min-height: 100dvh; display: grid; place-items: center; padding: 24px 16px; }
+.signin-card { width: min(420px, 100%); text-align: center; }
+.signin-logo { font-size: 64px; }
+.signin-card h1 { margin: 4px 0 6px; font-size: 32px; }
+.signin-card form { display: flex; flex-direction: column; gap: 12px; text-align: left; margin-top: 8px; }
+.signin-card label { display: flex; flex-direction: column; gap: 4px; font-weight: 700; color: var(--muted); }
+.signin-card .err { color: var(--bad); font-weight: 700; margin: 0; }
+.wide-btn { width: 100%; }

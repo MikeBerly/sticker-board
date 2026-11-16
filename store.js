@@ -1,26 +1,27 @@
 /*
- * store.js — the ONLY file that knows where data is saved.
+ * store.js — the ONLY file that decides where data is saved.
  *
- * The rest of the app talks to storage through these three methods:
+ * The rest of the app talks to storage through:
  *
- *   load()       -> Promise<object|null>  the whole saved document, or null on first run
- *   save(doc)    -> Promise<void>         save the whole document
- *   onChange(cb) -> unsubscribe()         call cb(doc) when the data changes somewhere else
- *                                         (another tab today; another phone once synced)
+ *   load()            -> Promise<object|null>  the whole saved document, or null on first run
+ *   save(doc, opts)   -> Promise<void>         save the whole document
+ *                                              (opts.replace: also delete events no longer in doc)
+ *   onChange(cb)      -> unsubscribe()         call cb(doc) when the data changes somewhere else
  *
- * To add syncing later, write another adapter with the same three methods
- * (e.g. createFirebaseStore / createSupabaseStore) and change the last lines of this file.
+ * Synced stores also have `auth` (sign in/out) — see firebase-store.js.
  *
- * Tips for a sync adapter:
- *   - doc.events is append-only. Each event has a unique id, so merging two devices is
- *     "keep every event from both sides, de-duplicated by id". Totals are always
- *     recalculated from events, so nothing gets overwritten.
- *   - doc.kids and doc.settings change rarely; "last write wins" is fine for them.
+ * Which store is used:
+ *   - firebase-config.js has no config  -> saves on this device only (createLocalStore)
+ *   - firebase-config.js has a config   -> syncs through Firebase (createFirebaseStore),
+ *                                          keeping a copy on this device as a backup
  */
+import { firebaseConfig, FAMILY_ID } from './firebase-config.js';
 
-const KEY = 'stickerBoard.v1';
+const KEY = 'stickerBoard.v1'; // this device's own board (also the starting point when sync is first turned on)
+const SYNC_COPY_KEY = 'stickerBoard.syncCopy'; // a copy of the synced board, for opening offline
 
-function createLocalStore() {
+export function createLocalStore(key = KEY) {
+  const KEY = key;
   // Ask the browser not to clear our data when space runs low (best effort).
   navigator.storage?.persist?.().catch(() => {});
 
@@ -46,6 +47,27 @@ function createLocalStore() {
   };
 }
 
-// ---- Swap this line to change where data lives ----
-const store = createLocalStore();
+async function pickStore() {
+  const local = createLocalStore();
+  if (!firebaseConfig) return local;
+  const syncCopy = createLocalStore(SYNC_COPY_KEY);
+  try {
+    const { createFirebaseStore } = await import('./firebase-store.js');
+    return await createFirebaseStore(firebaseConfig, FAMILY_ID, { mirror: syncCopy, preSync: local });
+  } catch (err) {
+    // The sync library couldn't load (e.g. first launch with no internet).
+    // Show the last synced copy, but don't let changes pile up that would never sync.
+    console.error('Sync could not start', err);
+    return {
+      ...syncCopy,
+      name: 'offline',
+      syncUnavailable: true,
+      async save() {
+        throw new Error('Sync is unavailable right now. Connect to the internet and reopen the app.');
+      },
+    };
+  }
+}
+
+const store = await pickStore();
 export default store;

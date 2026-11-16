@@ -1,8 +1,8 @@
 // Offline support: serve the app from the cache, and refresh the cache in the background.
 // After changing any app file, bump CACHE so devices pick up the new version on next launch.
-const CACHE = 'sticker-board-v2';
+const CACHE = 'sticker-board-v3';
 const FILES = [
-  './', './index.html', './styles.css', './app.js', './model.js', './store.js', './emoji.js',
+  './', './index.html', './styles.css', './app.js', './model.js', './store.js', './emoji.js', './firebase-config.js', './firebase-store.js',
   './manifest.webmanifest', './icon.svg', './icon-180.png', './icon-512.png',
 ];
 
@@ -17,7 +17,10 @@ self.addEventListener('activate', (e) => {
 });
 
 self.addEventListener('fetch', (e) => {
-  if (e.request.method !== 'GET' || new URL(e.request.url).origin !== location.origin) return;
+  const url = new URL(e.request.url);
+  // Cache our own files and the Firebase library (so the synced app can open offline).
+  const cacheable = url.origin === location.origin || url.href.startsWith('https://www.gstatic.com/firebasejs/');
+  if (e.request.method !== 'GET' || !cacheable) return;
   e.respondWith(
     caches.open(CACHE).then(async (cache) => {
       const cached = await cache.match(e.request, { ignoreSearch: true });

@@ -38,12 +38,12 @@ function toInt(v, min, max) {
   return Number.isFinite(n) ? Math.min(max, Math.max(min, n)) : null;
 }
 
-async function commit() {
+async function commit(opts) {
   try {
-    await store.save(data);
+    await store.save(data, opts);
   } catch (err) {
     console.error(err);
-    toast("⚠️ Couldn't save. Try exporting a backup.");
+    toast(store.syncUnavailable ? `⚠️ ${err.message}` : "⚠️ Couldn't save. Try exporting a backup.");
   }
 }
 
@@ -461,7 +461,7 @@ async function importFile(file) {
   );
   if (!ok) return;
   data = incoming;
-  await commit();
+  await commit({ replace: true });
   render();
   toast('✅ Backup imported');
 }
@@ -535,7 +535,7 @@ const actions = {
     if (!ok) return;
     data.kids = data.kids.filter((x) => x.id !== kid);
     data.events = data.events.filter((e) => e.kidId !== kid);
-    await commit();
+    await commit({ replace: true });
     render();
   },
   'pick-emoji': async ({ kid, list, item, target }) => {
@@ -964,9 +964,14 @@ function settingsView() {
         <button class="btn ghost small" data-action="change-pin">Change PIN</button>
         <label class="check"><input type="checkbox" data-field="sound" ${data.settings.sound ? 'checked' : ''}> Play a sound when stickers are awarded</label>
       </section>
+      ${syncPanelHTML()}
       <section class="panel">
         <h2>Backup</h2>
-        <p class="hint">Everything is saved on this device only. Export a backup now and then, and always before moving to a new device or the synced version.</p>
+        <p class="hint">${
+          store.auth
+            ? 'The board syncs through your Firebase account. Export a backup now and then as an extra safety net.'
+            : 'Everything is saved on this device only. Export a backup now and then, and always before moving to a new device or the synced version.'
+        }</p>
         ${lastBackupHTML()}
         <div class="row start">
           <button class="btn" data-action="export">⬇️ Export backup</button>
@@ -977,6 +982,81 @@ function settingsView() {
     </main>`
   );
 }
+
+function syncPanelHTML() {
+  if (store.syncUnavailable) {
+    return `<section class="panel"><h2>☁️ Syncing</h2>
+      <p class="backup-status warn">Sync couldn't start, probably because there's no internet. This is the last synced copy, and changes are paused. Connect to the internet and reopen the app.</p></section>`;
+  }
+  if (!store.auth) return '';
+  return `<section class="panel"><h2>☁️ Syncing</h2>
+    <p class="hint">Changes show up on every signed-in device within a few seconds. Without internet, changes are kept and sent once it reconnects.</p>
+    <p class="backup-status">Signed in as ${esc(store.auth.user?.email || '')}</p>
+    <button class="btn ghost small" data-action="sign-out">Sign out of this device</button></section>`;
+}
+
+/* ---------- sign-in (only when syncing is turned on) ---------- */
+function authMessage(err) {
+  const code = err?.code || '';
+  if (/invalid-credential|wrong-password|user-not-found|invalid-email/.test(code)) return "That email or password didn't work.";
+  if (/too-many-requests/.test(code)) return 'Too many tries. Wait a minute, then try again.';
+  if (/network-request-failed/.test(code)) return 'No internet connection. Connect and try again.';
+  return 'Sign-in failed. Please try again.';
+}
+
+function showSignIn(message = '', email = '') {
+  app.innerHTML = `<main class="signin">
+    <div class="panel signin-card">
+      <div class="signin-logo">🧪</div>
+      <h1>Sticker Board</h1>
+      <p class="hint">Grown-ups: sign in once on this device to sync the board between your devices.</p>
+      <form id="signin-form">
+        <label>Email<input class="field wide" type="email" name="email" autocomplete="username" value="${esc(email)}" required></label>
+        <label>Password<input class="field wide" type="password" name="password" autocomplete="current-password" required></label>
+        <p class="err"${message ? '' : ' hidden'}>${esc(message)}</p>
+        <button class="btn go wide-btn">Sign in</button>
+      </form>
+      <button type="button" class="link" id="forgot-pw">Forgot password?</button>
+    </div>
+  </main>`;
+  const form = document.getElementById('signin-form');
+  form.onsubmit = async (e) => {
+    e.preventDefault();
+    const btn = form.querySelector('button');
+    btn.disabled = true;
+    btn.textContent = 'Signing in…';
+    try {
+      await store.auth.signIn(form.email.value, form.password.value);
+      await startBoard();
+    } catch (err) {
+      console.error(err);
+      showSignIn(authMessage(err), form.email.value);
+    }
+  };
+  document.getElementById('forgot-pw').onclick = async () => {
+    const addr = form.email.value.trim();
+    if (!addr) return showSignIn('Type your email above first, then tap “Forgot password?”.');
+    try {
+      await store.auth.sendReset(addr);
+      showSignIn(`If ${addr} has an account, a reset email is on its way.`, addr);
+    } catch (err) {
+      showSignIn(authMessage(err), addr);
+    }
+  };
+}
+
+actions['sign-out'] = async () => {
+  const ok = await confirmDialog(
+    'Sign out?',
+    'This device will stop showing the synced board until a grown-up signs in again. Nothing is deleted.',
+    'Sign out',
+    true
+  );
+  if (!ok) return;
+  await store.auth.signOut();
+  location.hash = '#/';
+  location.reload();
+};
 
 /* ---------- routing ---------- */
 function parseRoute() {
@@ -989,6 +1069,7 @@ function parseRoute() {
 }
 
 function render() {
+  if (!data) return; // still signing in
   const r = parseRoute();
   const kid = r.view === 'kid' ? kidById(r.id) : null;
   let html;
@@ -1005,21 +1086,65 @@ function render() {
 }
 
 /* ---------- start ---------- */
-async function init() {
+// When another device changes the board, wait until the parent finishes typing or closes a dialog.
+let renderWaiting = false;
+function renderWhenIdle() {
+  const a = document.activeElement;
+  if ((a && app.contains(a) && a.matches('input, select, textarea')) || !modalRoot.hidden) {
+    renderWaiting = true;
+    return;
+  }
+  renderWaiting = false;
+  render();
+}
+const retryRender = () => setTimeout(() => renderWaiting && renderWhenIdle(), 0);
+app.addEventListener('focusout', retryRender);
+new MutationObserver(() => modalRoot.hidden && retryRender()).observe(modalRoot, { attributes: true, attributeFilter: ['hidden'] });
+
+async function startBoard() {
   let saved = null;
   try {
     saved = await store.load();
   } catch (err) {
     console.error('Could not read saved data', err);
   }
+  const firstUpload = !saved && store.remoteEmpty;
+  if (firstUpload) saved = await store.localCopy().catch(() => null); // this device's board from before syncing
   try {
     data = saved ? normalize(saved) : defaultData();
   } catch (err) {
     console.error('Saved data was unreadable', err);
     data = defaultData();
   }
-  if (!saved || saved.schemaVersion !== data.schemaVersion) await commit();
+  render();
 
+  if (firstUpload) {
+    const summary = data.kids.map((k) => `${k.name} ${Math.max(balance(data, k.id), 0)}`).join(', ');
+    const ok = await confirmDialog(
+      'Start syncing',
+      `There's no synced board yet. Use the board on this device (${summary}) as the starting point for every device?`,
+      'Use this board'
+    );
+    if (!ok) {
+      data = defaultData();
+      render();
+      toast('Starting fresh. To use a backup instead: ⚙️ Settings → Import backup.');
+    } else toast('☁️ Syncing is on');
+    await commit({ replace: true });
+  } else if (!saved || saved.schemaVersion !== data.schemaVersion) await commit();
+
+  store.onChange((doc) => {
+    try {
+      data = normalize(doc);
+      renderWhenIdle();
+    } catch (err) {
+      console.error(err);
+    }
+  });
+  if (store.syncUnavailable) toast("⚠️ Sync couldn't start. Connect to the internet and reopen the app.");
+}
+
+async function init() {
   window.addEventListener('hashchange', () => {
     render();
     window.scrollTo(0, 0);
@@ -1030,19 +1155,12 @@ async function init() {
       render();
     }
   });
-  store.onChange((doc) => {
-    try {
-      data = normalize(doc);
-      render();
-    } catch (err) {
-      console.error(err);
-    }
-  });
-  render();
-
   if ('serviceWorker' in navigator && !['localhost', '127.0.0.1'].includes(location.hostname)) {
     navigator.serviceWorker.register('sw.js').catch((err) => console.error('Offline support unavailable', err));
   }
+
+  if (store.auth && !(await store.auth.ready())) return showSignIn();
+  await startBoard();
 }
 
 init();
