@@ -121,8 +121,23 @@ function pinPad(forceCreate = false) {
     }
     paint();
 
-    s.addEventListener('click', async (e) => {
-      const k = e.target.closest('[data-k]')?.dataset.k;
+    s.addEventListener('click', (e) => press(e.target.closest('[data-k]')?.dataset.k));
+
+    // Typing on a keyboard works too: digits, Backspace/Delete, Escape.
+    function onKey(e) {
+      if (!s.isConnected) return document.removeEventListener('keydown', onKey);
+      if (e.metaKey || e.ctrlKey || e.altKey) return;
+      let k = null;
+      if (/^[0-9]$/.test(e.key)) k = e.key;
+      else if (e.key === 'Backspace' || e.key === 'Delete') k = 'del';
+      else if (e.key === 'Escape') k = 'cancel';
+      if (k == null) return;
+      e.preventDefault();
+      press(k);
+    }
+    document.addEventListener('keydown', onKey);
+
+    async function press(k) {
       if (k == null || busy) return;
       if (k === 'cancel') {
         closeModal();
@@ -163,7 +178,7 @@ function pinPad(forceCreate = false) {
         first = null;
         shake("Those didn't match. Start again.");
       }
-    });
+    }
   });
 }
 
