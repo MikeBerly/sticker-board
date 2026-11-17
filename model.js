@@ -7,7 +7,8 @@
  *   settings: { tiers: [{id, name, emoji, cost}], pinHash, sound, lastBackupAt },
  *   kids: [{ id, name, avatar, sticker, color,
  *            jobs:   [{ id, name, emoji, stickers }],
- *            prizes: [{ id, name, emoji, tier }] }],
+ *            prizes: [{ id, name, emoji, tier }],
+ *            wishes: [{ id, name, emoji, tier?, at }] }],   ideas a kid suggested, waiting for a grown-up
  *   events: [ { id, type: 'earn' | 'redeem', kidId, amount, label, emoji, tier?, at }
  *           | { id, type: 'undo', ref, kidId, at } ]
  * }
@@ -48,6 +49,7 @@ export function defaultData() {
           job('Go to before care', '🏫', 3),
         ],
         prizes: starterPrizes(),
+        wishes: [],
       },
       {
         id: uid(), name: 'Ellis', startingStickers: 22, avatar: '🚀', sticker: '🌟', color: '#0ea5e9',
@@ -57,6 +59,7 @@ export function defaultData() {
           job('Go to before care', '🏫', 3),
         ],
         prizes: starterPrizes(),
+        wishes: [],
       },
   ];
   const at = new Date().toISOString();
@@ -111,6 +114,12 @@ export function normalize(raw) {
       id: str(p.id, uid()), name: str(p.name, 'Prize'), emoji: str(p.emoji, '🎁'),
       tier: tierIds.has(fixTier(p.tier)) ? fixTier(p.tier) : 'treat',
       ...(p.autoEmoji === true ? { autoEmoji: true } : {}),
+    })),
+    wishes: list(k.wishes).map((w) => ({
+      id: str(w.id, uid()), name: str(w.name, 'Idea'), emoji: str(w.emoji, '🎁'),
+      ...(tierIds.has(w.tier) ? { tier: w.tier } : {}),
+      at: str(w.at, new Date().toISOString()),
+      ...(w.autoEmoji === true ? { autoEmoji: true } : {}),
     })),
   }));
 
