@@ -4,8 +4,14 @@
 import store from './store.js';
 import { defaultData, normalize, balance, undoneIds, sortedTiers, uid } from './model.js';
 import { EMOJI_GROUPS, suggestEmoji } from './emoji.js';
+import { IDEAS } from './ideas.js';
 
 const UNLOCK_MINUTES = 5;
+// Where the 🔍 button searches. The item's name goes on the end of each address.
+const SEARCH_SITES = [
+  ['Amazon.ca', 'https://www.amazon.ca/s?k='],
+  ['Walmart.ca', 'https://www.walmart.ca/search?q='],
+];
 const POTION_COLORS = ['#8b5cf6', '#6366f1', '#0ea5e9', '#14b8a6', '#22c55e', '#eab308', '#f97316', '#ef4444', '#ec4899', '#a16207'];
 const app = document.getElementById('app');
 const modalRoot = document.getElementById('modal');
@@ -273,6 +279,37 @@ function promptDialog(title, body, placeholder = '') {
   });
 }
 
+function tierPicker(title, current) {
+  return new Promise((resolve) => {
+    const s = openModal(`
+      <h2>${esc(title)}</h2>
+      <p>Which size of prize is it?</p>
+      <div class="choice-list">${sortedTiers(data)
+        .map((t) => `<button class="btn${t.id === current ? '' : ' ghost'}" data-k="${t.id}">${t.emoji} ${esc(t.name)} · ${t.cost} stickers</button>`)
+        .join('')}</div>
+      <div class="row end"><button class="btn ghost" data-k="no">Cancel</button></div>`);
+    s.addEventListener('click', (e) => {
+      const k = e.target.closest('[data-k]')?.dataset.k;
+      if (!k) return;
+      closeModal();
+      resolve(k === 'no' ? null : k);
+    });
+  });
+}
+
+function searchDialog(q) {
+  const s = openModal(`
+    <h2>🔍 ${esc(q)}</h2>
+    <p>Look it up at:</p>
+    <div class="choice-list">${SEARCH_SITES.map(
+      ([name, url]) => `<a class="btn" href="${esc(url + encodeURIComponent(q))}" target="_blank" rel="noopener">${esc(name)}</a>`
+    ).join('')}</div>
+    <div class="row end"><button class="btn ghost" data-k="no">Close</button></div>`);
+  s.addEventListener('click', (e) => {
+    if (e.target.closest('a, [data-k]')) setTimeout(closeModal, 0); // let the link open first
+  });
+}
+
 function emojiPicker(title, suggestions, current) {
   return new Promise((resolve) => {
     const btns = (list) =>
@@ -481,6 +518,37 @@ async function importFile(file) {
   toast('✅ Backup imported');
 }
 
+const sameName = (a, b) => a.trim().toLowerCase() === b.trim().toLowerCase();
+const onWishList = (kid, name) => [...kid.prizes, ...kid.wishes].some((x) => sameName(x.name, name));
+
+/** A kid adds an idea. No PIN: it waits on their wish list page until a grown-up approves it. */
+async function addWish(kid, name, emoji, tier) {
+  name = String(name || '').trim().slice(0, 60);
+  if (!kid || !name) return false;
+  if (onWishList(kid, name)) {
+    toast('That one is already on the list!');
+    return false;
+  }
+  kid.wishes.push({
+    id: uid(), name, emoji: emoji || suggestEmoji(name)[0] || '🎁',
+    ...(tierById(tier) ? { tier } : {}),
+    at: nowIso(),
+  });
+  await commit();
+  render();
+  chime([659.25, 880]);
+  toast('💡 Great idea! A grown-up will check it.');
+  return true;
+}
+
+app.addEventListener('submit', async (e) => {
+  if (e.target.id !== 'wish-form') return;
+  e.preventDefault();
+  const input = e.target.querySelector('input');
+  input.blur(); // so the page can refresh
+  await addWish(kidById(e.target.dataset.kid), input.value);
+});
+
 const actions = {
   'open-settings': async () => {
     if (await requireParent()) location.hash = '#/settings';
@@ -534,7 +602,7 @@ const actions = {
     render();
   },
   'add-kid': async () => {
-    data.kids.push({ id: uid(), name: 'New kid', avatar: '🙂', sticker: '⭐', color: '#f97316', jobs: [], prizes: [] });
+    data.kids.push({ id: uid(), name: 'New kid', avatar: '🙂', sticker: '⭐', color: '#f97316', jobs: [], prizes: [], wishes: [] });
     await commit();
     render();
   },
@@ -576,6 +644,34 @@ const actions = {
     if (isUnlocked()) extendUnlock();
     await commit();
     render();
+  },
+  'add-idea': ({ kid, name, emoji, tier }) => addWish(kidById(kid), name, emoji, tier),
+  'del-wish': async ({ kid, item }) => {
+    const k = kidById(kid);
+    const w = k?.wishes.find((x) => x.id === item);
+    if (!w) return;
+    k.wishes = k.wishes.filter((x) => x !== w);
+    await commit();
+    render();
+    toast(`Removed “${w.name}”`);
+  },
+  'approve-wish': async ({ kid, item }) => {
+    const k = kidById(kid);
+    if (!k?.wishes.some((x) => x.id === item)) return;
+    if (!(await requireParent())) return;
+    const w = k.wishes.find((x) => x.id === item); // look again: the board may have synced while the PIN pad was open
+    if (!w) return;
+    const tier = await tierPicker(`${w.emoji} ${w.name}`, w.tier);
+    if (!tier || !k.wishes.includes(w)) return;
+    k.wishes = k.wishes.filter((x) => x !== w);
+    k.prizes.push({ id: uid(), name: w.name, emoji: w.emoji, tier });
+    await commit();
+    render();
+    celebrate(w.emoji, 12);
+    toast(`${w.emoji} ${w.name} is on ${k.name}'s wish list!`);
+  },
+  search: async ({ q }) => {
+    if (q && (await requireParent())) searchDialog(q);
   },
   'change-pin': async () => {
     if (await pinPad(true)) toast('🔒 New PIN saved');
@@ -794,6 +890,7 @@ function kidView(kid) {
       <section class="jobs">
         <div class="row kid-actions">
           <a class="btn" href="${kidHref(kid, 'redeem')}">🎁 Get a prize</a>
+          <a class="btn ghost" href="${kidHref(kid, 'wishes')}">💡 Wish list${kid.wishes.length ? ` <span class="badge">${kid.wishes.length}</span>` : ''}</a>
           <a class="btn ghost" href="${kidHref(kid, 'history')}">📜 History</a>
         </div>
         <h2>Jobs</h2>
@@ -839,6 +936,76 @@ function redeemView(kid) {
     `<main class="redeem-page" style="--kid:${kid.color}">
       <p class="have">${esc(kid.name)} has <b>${bal}</b> ${esc(kid.sticker)}</p>
       ${sections}
+    </main>`
+  );
+}
+
+function wishesView(kid) {
+  const k = `data-kid="${esc(kid.id)}"`;
+  const tiers = sortedTiers(data);
+  const searchBtn = (name) =>
+    `<button class="icon-btn small" data-action="search" data-q="${esc(name)}" aria-label="Look up ${esc(name)} in stores">🔍</button>`;
+
+  const waiting = kid.wishes
+    .map(
+      (w) => `<div class="wish">
+        <button class="emoji-btn" data-action="pick-emoji" data-target="item" ${k} data-list="wishes" data-item="${esc(w.id)}" aria-label="Change icon for ${esc(w.name)}">${esc(w.emoji)}</button>
+        <span class="wish-name">${esc(w.name)}</span>
+        ${searchBtn(w.name)}
+        <button class="btn go small" data-action="approve-wish" ${k} data-item="${esc(w.id)}">✓ Add</button>
+        <button class="icon-btn small" data-action="del-wish" ${k} data-item="${esc(w.id)}" aria-label="Remove ${esc(w.name)}">✕</button>
+      </div>`
+    )
+    .join('');
+
+  const list = tiers
+    .map((t) => {
+      const ps = kid.prizes.filter((p) => p.tier === t.id);
+      if (!ps.length) return '';
+      return `<h3>${t.emoji} ${esc(t.name)} · ${t.cost} ${esc(kid.sticker)}</h3>
+        ${ps.map((p) => `<div class="wish"><span class="wish-emoji">${esc(p.emoji)}</span><span class="wish-name">${esc(p.name)}</span>${searchBtn(p.name)}</div>`).join('')}`;
+    })
+    .join('');
+
+  const gallery = tiers
+    .map((t) => {
+      const ideas = (IDEAS[t.id] || [])
+        .map(([name, emoji]) => {
+          const on = onWishList(kid, name);
+          return `<button class="idea${on ? ' on' : ''}" data-action="add-idea" ${k} data-name="${esc(name)}" data-emoji="${esc(emoji)}" data-tier="${t.id}" ${on ? 'disabled' : ''}>
+            <span class="prize-emoji">${esc(emoji)}</span><span>${esc(name)}</span>${on ? '<span class="idea-on">✓ On the list</span>' : ''}
+          </button>`;
+        })
+        .join('');
+      return ideas ? `<h3>${t.emoji} ${esc(t.name)} ideas</h3><div class="idea-grid">${ideas}</div>` : '';
+    })
+    .join('');
+
+  return (
+    topbar(back(kidHref(kid), kid.name), `💡 ${esc(kid.name)}'s wishes`) +
+    `<main class="wishes-page" style="--kid:${kid.color}">
+      <section class="panel">
+        <h2>Add an idea</h2>
+        <p class="hint">What would you like to work toward? Tap 🎤 on the keyboard to say it out loud.</p>
+        <form id="wish-form" class="wish-form" ${k}>
+          <input class="field" maxlength="60" placeholder="e.g. Dinosaur Lego" aria-label="Your idea" autocomplete="off" required>
+          <button class="btn">Add</button>
+        </form>
+      </section>
+      ${
+        waiting
+          ? `<section class="panel"><h2>Waiting for a grown-up</h2>
+              <p class="hint">Grown-ups: tap ✓ Add to put it on the wish list and pick its size, or 🔍 to look it up.</p>
+              <div class="items">${waiting}</div></section>`
+          : ''
+      }
+      <section class="panel"><h2>${esc(kid.name)}'s wish list</h2>
+        ${list ? `<div class="items">${list}</div>` : '<p class="hint">Nothing yet. Add an idea above!</p>'}
+      </section>
+      <section class="panel"><h2>Need ideas?</h2>
+        <p class="hint">Tap one to add it. A grown-up will check it.</p>
+        ${gallery}
+      </section>
     </main>`
   );
 }
@@ -918,6 +1085,7 @@ function kidSettings(kid) {
         <button class="emoji-btn" data-action="pick-emoji" data-target="item" ${ref('prizes', p)} aria-label="Change icon for ${esc(p.name)}">${esc(p.emoji)}</button>
         <input class="field name-in" data-field="item-name" ${ref('prizes', p)} value="${esc(p.name)}" aria-label="Prize name">
         <select class="field" data-field="item-tier" ${ref('prizes', p)} aria-label="Prize size">${tierOptions(p.tier)}</select>
+        <button class="icon-btn small" data-action="search" data-q="${esc(p.name)}" aria-label="Look up ${esc(p.name)} in stores">🔍</button>
         ${del('prizes', p)}
       </div>`
     )
@@ -945,6 +1113,11 @@ function kidSettings(kid) {
     <div class="items">${jobs || '<p class="hint">No jobs yet.</p>'}</div>
     <button class="btn ghost small" data-action="add-item" ${k} data-list="jobs">＋ Add job</button>
     <h3>Prize wish list</h3>
+    ${
+      kid.wishes.length
+        ? `<a class="btn small review" href="${kidHref(kid, 'wishes')}">💡 ${plural(kid.wishes.length, 'new idea')} from ${esc(kid.name)} to review</a>`
+        : ''
+    }
     <div class="items">${prizes || '<p class="hint">No prizes yet.</p>'}</div>
     <button class="btn ghost small" data-action="add-item" ${k} data-list="prizes">＋ Add prize</button>
     <div class="danger-zone"><button class="btn danger small" data-action="del-kid" ${k}>Remove ${esc(kid.name)}</button></div>
@@ -1088,7 +1261,10 @@ function render() {
   const r = parseRoute();
   const kid = r.view === 'kid' ? kidById(r.id) : null;
   let html;
-  if (kid) html = r.sub === 'redeem' ? redeemView(kid) : r.sub === 'history' ? historyView(kid) : kidView(kid);
+  if (kid) {
+    const views = { redeem: redeemView, history: historyView, wishes: wishesView };
+    html = (views[r.sub] || kidView)(kid);
+  }
   else if (r.view === 'settings') {
     if (!isUnlocked()) {
       location.hash = '#/';
