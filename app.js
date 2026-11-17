@@ -21,6 +21,7 @@ let data;
 let unlockedUntil = 0;
 let lockTimer = null;
 let pop = null; // { kidId, from }: animate that kid's potion from an earlier level on the next render
+let selecting = null; // { kidId, ids: Set } while picking several history entries to undo at once
 
 /* ---------- helpers ---------- */
 const esc = (s) =>
@@ -457,6 +458,29 @@ async function undo(eventId) {
   toast('↩️ Undone');
 }
 
+async function undoSelected() {
+  if (!selecting) return;
+  const kid = kidById(selecting.kidId);
+  const undone = undoneIds(data);
+  const evs = data.events.filter((e) => selecting.ids.has(e.id) && !undone.has(e.id) && e.type !== 'undo');
+  if (!kid || !evs.length) return;
+  if (!(await requireParent())) return;
+  const lost = evs.filter((e) => e.type === 'earn').reduce((n, e) => n + e.amount, 0);
+  const prizes = evs.filter((e) => e.type === 'redeem');
+  const back = prizes.reduce((n, e) => n + e.amount, 0);
+  const parts = [];
+  if (lost) parts.push(`${kid.name} loses ${plural(lost, 'sticker')}`);
+  if (prizes.length) parts.push(`gets ${plural(back, 'sticker')} back for ${plural(prizes.length, 'prize')}`);
+  const n = plural(evs.length, 'entry').replace('entrys', 'entries');
+  if (!(await confirmDialog(`Undo ${n}?`, `${parts.join(' and ')}. This can't be reversed.`, `Undo ${n}`, true))) return;
+  const at = nowIso();
+  for (const e of evs) data.events.push({ id: uid(), type: 'undo', ref: e.id, kidId: e.kidId, at });
+  selecting = null;
+  await commit();
+  render();
+  toast(`↩️ Undid ${n}`);
+}
+
 function localDate(d = new Date()) {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }
@@ -564,6 +588,36 @@ const actions = {
     award(k, k?.jobs.find((j) => j.id === job));
   },
   undo: ({ event }) => undo(event),
+  'select-mode': async ({ kid }) => {
+    if (!kidById(kid) || !(await requireParent())) return;
+    selecting = { kidId: kid, ids: new Set() };
+    render();
+  },
+  'toggle-pick': ({ event }) => {
+    if (!selecting) return;
+    if (selecting.ids.has(event)) selecting.ids.delete(event);
+    else selecting.ids.add(event);
+    render();
+  },
+  'pick-today': () => {
+    if (!selecting) return;
+    const today = localDate();
+    const undone = undoneIds(data);
+    for (const e of data.events) {
+      if (e.kidId === selecting.kidId && e.type !== 'undo' && !undone.has(e.id) && localDate(new Date(e.at)) === today) selecting.ids.add(e.id);
+    }
+    render();
+  },
+  'pick-none': () => {
+    if (!selecting) return;
+    selecting.ids.clear();
+    render();
+  },
+  'select-cancel': () => {
+    selecting = null;
+    render();
+  },
+  'undo-selected': () => undoSelected(),
   redeem: ({ kid, prize }) => {
     const k = kidById(kid);
     const p = k?.prizes.find((x) => x.id === prize);
@@ -1026,9 +1080,22 @@ function historyView(kid) {
     if (e.type === 'earn') earned += e.amount;
     else { spent += e.amount; prizes++; }
   }
+  const sel = selecting?.kidId === kid.id ? selecting.ids : null;
   const rows = evs
     .map((e) => {
       const u = undone.has(e.id);
+      if (sel) {
+        const picked = !u && sel.has(e.id);
+        return `<li class="ev ${e.type}${u ? ' undone' : ''}${picked ? ' picked' : ''}"${u ? '' : ` data-action="toggle-pick" data-event="${esc(e.id)}"`}>
+          <span class="pick" aria-hidden="true">${picked ? '✓' : ''}</span>
+          <span class="ev-emoji">${esc(e.emoji || (e.type === 'earn' ? '⭐' : '🎁'))}</span>
+          <div class="ev-main">
+            <div class="ev-label">${e.type === 'redeem' ? 'Prize: ' : ''}${esc(e.label)}</div>
+            <div class="ev-date">${fmtDate(e.at)}${u ? ' · undone' : ''}</div>
+          </div>
+          <span class="ev-amt">${e.type === 'earn' ? '+' : '−'}${e.amount}</span>
+        </li>`;
+      }
       return `<li class="ev ${e.type}${u ? ' undone' : ''}">
         <span class="ev-emoji">${esc(e.emoji || (e.type === 'earn' ? '⭐' : '🎁'))}</span>
         <div class="ev-main">
@@ -1048,6 +1115,19 @@ function historyView(kid) {
         <div class="stat"><b>${prizes}</b>${prizes === 1 ? 'prize' : 'prizes'} redeemed</div>
         <div class="stat"><b>${Math.max(earned - spent, 0)}</b>stickers now</div>
       </div>
+      ${
+        !rows
+          ? ''
+          : sel
+            ? `<div class="select-bar">
+                <span class="sel-count">${plural(sel.size, 'entry').replace('entrys', 'entries')} picked</span>
+                <button class="btn ghost small" data-action="pick-today">Pick all from today</button>
+                ${sel.size ? '<button class="btn ghost small" data-action="pick-none">Clear</button>' : ''}
+                <button class="btn ghost small" data-action="select-cancel">Cancel</button>
+                <button class="btn danger small" data-action="undo-selected" ${sel.size ? '' : 'disabled'}>↩️ Undo ${sel.size || ''}</button>
+              </div>`
+            : `<div class="row start"><button class="btn ghost small" data-action="select-mode" data-kid="${esc(kid.id)}">☑️ Undo several at once</button></div>`
+      }
       ${rows ? `<ul class="ev-list">${rows}</ul>` : '<p class="empty">Nothing yet. Go earn some stickers! ⭐</p>'}
     </main>`
   );
@@ -1260,6 +1340,7 @@ function render() {
   if (!data) return; // still signing in
   const r = parseRoute();
   const kid = r.view === 'kid' ? kidById(r.id) : null;
+  if (!(kid && r.sub === 'history' && selecting?.kidId === kid.id)) selecting = null;
   let html;
   if (kid) {
     const views = { redeem: redeemView, history: historyView, wishes: wishesView };
