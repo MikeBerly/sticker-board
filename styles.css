@@ -375,3 +375,9 @@ input[type='color'] { width: 64px; height: 48px; border: 2px solid var(--line); 
 }
 .ev.picked .pick { background: var(--bad); border-color: var(--bad); }
 .ev.undone .pick { visibility: hidden; }
+
+/* ---------- starting up ---------- */
+.starting { font-size: 64px; text-align: center; margin-top: 30vh; animation: twinkle 1.6s ease-in-out infinite; }
+.start-fail { min-height: 100dvh; display: grid; place-items: center; padding: 24px 16px; }
+.start-fail .panel { width: min(440px, 100%); }
+.start-emoji { font-size: 64px; margin: 0; }

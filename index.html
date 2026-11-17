@@ -15,9 +15,34 @@
   <link rel="stylesheet" href="styles.css">
 </head>
 <body>
-  <div id="app"></div>
+  <div id="app"><p class="starting">🧪</p></div>
   <div id="modal" hidden></div>
   <div id="toast" role="status" aria-live="polite"></div>
+  <script>
+    // If the app fails to start (or is still not up after 20 seconds), show a way out instead of a blank screen.
+    // "Reload" clears the saved copy of the app's files (not the board's data), then loads them fresh.
+    (function () {
+      function fail() {
+        if (window.__appStarted) return;
+        var app = document.getElementById('app');
+        if (!app || app.querySelector('.start-fail')) return;
+        app.innerHTML =
+          '<main class="start-fail"><div class="panel center">' +
+          '<p class="start-emoji">🧪</p><h2>The sticker board didn’t load</h2>' +
+          '<p class="hint">Check the internet connection, then tap Reload. Your stickers are safe.</p>' +
+          '<button class="btn" id="start-reload">Reload</button></div></main>';
+        document.getElementById('start-reload').onclick = function () {
+          var clear = window.caches ? caches.keys().then(function (ks) { return Promise.all(ks.map(function (k) { return caches.delete(k); })); }) : Promise.resolve();
+          clear.catch(function () {}).then(function () { location.reload(); });
+        };
+      }
+      window.addEventListener('error', function (e) {
+        if (e instanceof ErrorEvent || (e.target && e.target.tagName === 'SCRIPT')) fail();
+      }, true);
+      window.addEventListener('unhandledrejection', fail);
+      setTimeout(fail, 20000);
+    })();
+  </script>
   <script type="module" src="app.js"></script>
 </body>
 </html>
