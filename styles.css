@@ -357,3 +357,21 @@ input[type='color'] { width: 64px; height: 48px; border: 2px solid var(--line); 
 @media (max-width: 600px) {
   .wish { flex-wrap: wrap; }
 }
+
+/* ---------- undo several at once (history) ---------- */
+.select-bar {
+  position: sticky; top: 8px; z-index: 5;
+  display: flex; flex-wrap: wrap; gap: 8px; align-items: center;
+  background: #fff; border: 3px solid var(--kid); border-radius: 22px; padding: 10px 12px;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.12);
+}
+.sel-count { flex: 1; min-width: 120px; font-size: 18px; font-weight: 800; }
+.select-bar .btn:disabled { opacity: 0.4; }
+.ev[data-action='toggle-pick'] { cursor: pointer; }
+.ev.picked { box-shadow: inset 0 0 0 3px var(--bad); background: #fff5f5; }
+.pick {
+  width: 32px; height: 32px; flex: none; border-radius: 10px; border: 3px solid var(--line);
+  display: grid; place-items: center; font-weight: 900; color: #fff;
+}
+.ev.picked .pick { background: var(--bad); border-color: var(--bad); }
+.ev.undone .pick { visibility: hidden; }
