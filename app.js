@@ -1273,6 +1273,7 @@ function authMessage(err) {
 }
 
 function showSignIn(message = '', email = '') {
+  window.__appStarted = true;
   app.innerHTML = `<main class="signin">
     <div class="panel signin-card">
       <div class="signin-logo">🧪</div>
@@ -1354,6 +1355,7 @@ function render() {
     html = settingsView();
   } else html = boardView();
   app.innerHTML = html;
+  window.__appStarted = true; // tells index.html the app is up, so it won't show its "didn't load" screen
   pop = null;
 }
 

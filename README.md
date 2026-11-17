@@ -53,7 +53,9 @@ In ⚙️ **Settings → Backup**:
 
 ## Updating the app later
 
-After changing any app file, change `CACHE = 'sticker-board-v1'` in `sw.js` to `v2`, `v3` and so on, then upload the changed files. The iPad picks up the new version the second time you open the app.
+Upload the changed files. With internet, the app always loads its newest files when it opens, so devices pick up a change on their next launch. The saved copy in `sw.js` is only used offline (or if the network takes more than 4 seconds). If you add a new file, add it to `FILES` in `sw.js` and bump `CACHE`.
+
+If the app ever fails to start, it shows a **Reload** button instead of a blank screen. Reload clears the saved copy of the app's files (never the board's data) and loads them fresh.
 
 ## Adding sync later (for future you, or for Claude)
 
