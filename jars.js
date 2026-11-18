@@ -97,14 +97,21 @@ export const JAR_STYLES = {
 
   gumball: {
     name: 'Gumball machine',
-    draw({ y, from, key, color, marks }) {
+    draw({ y, from, key, color, bal, marks }) {
       const palette = [color, '#f472b6', '#facc15', '#4ade80', '#fb923c', '#38bdf8'];
+      // About 6 gumballs per 17px of fill, and at least one as soon as there's a sticker.
+      const count = bal > 0 ? Math.max(1, Math.round(((248 - y) / 17) * 6)) : 0;
       let balls = '';
-      let i = 0;
-      for (let row = 0; row < 12; row++) {
+      for (let i = 0, row = 0; i < count && row < 12; row++) {
         const cy = 238 - row * 17;
-        if (cy < y + 6) break;
-        for (let cx = 52 + (row % 2 ? 10 : 0); cx <= 170; cx += 20) balls += `<circle cx="${cx}" cy="${cy}" r="10" fill="${palette[i++ % palette.length]}"/>`;
+        const spots = [];
+        for (let cx = 52 + (row % 2 ? 10 : 0); cx <= 170; cx += 20) spots.push(cx);
+        spots.sort((a, b) => Math.abs(a - 110) - Math.abs(b - 110)); // a part-filled row starts in the middle
+        for (const cx of spots) {
+          if (i >= count) break;
+          balls += `<circle cx="${cx}" cy="${cy}" r="10" fill="${palette[(row * 7 + cx) % palette.length]}"/>`;
+          i++;
+        }
       }
       return `<defs><clipPath id="clip-${key}"><path d="${DOME}"/></clipPath></defs>
         <path class="glass-bg" d="${DOME}"/>
@@ -120,8 +127,8 @@ export const JAR_STYLES = {
 
   beanstalk: {
     name: 'Magic beanstalk',
-    draw({ y, from, key, color, full, marks }) {
-      const top = Math.min(y, 230);
+    draw({ y, from, key, color, bal, full, marks }) {
+      const top = bal > 0 ? Math.min(y, 220) : 232; // a sprout peeks out of the pot from the first sticker
       const sway = (yy) => 110 + Math.sin((236 - yy) / 18) * 9;
       let stem = `M${sway(272)},272`;
       for (let yy = 266; yy >= top; yy -= 6) stem += ` L${sway(yy).toFixed(1)},${yy}`;
@@ -147,9 +154,10 @@ export const JAR_STYLES = {
 
   icecream: {
     name: 'Ice cream tower',
-    draw({ y, from, color, full, marks }) {
+    draw({ y, from, color, bal, full, marks }) {
       const flavours = [color, '#f9a8d4', '#fde68a', '#86efac', '#a16207', '#fdba74'];
-      const n = Math.max(0, Math.round((240 - y) / 22));
+      // One scoop per sixth of the way to the top prize; the first scoop shows from the first sticker.
+      const n = bal > 0 ? Math.max(1, Math.round((JAR_FLOOR - y) / 27)) : 0;
       let scoops = '';
       for (let k = 0; k < n; k++) {
         const cy = 232 - k * 22, cx = 110 + (k % 2 ? 4 : -4);
