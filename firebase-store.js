@@ -37,6 +37,7 @@ export async function createFirebaseStore(config, familyId, { mirror: localMirro
   const app = initializeApp(config);
   const auth = A.getAuth(app);
   const db = F.initializeFirestore(app, {
+    ignoreUndefinedProperties: true, // an empty field must never stop a save
     // Keeps a copy on the device so the board opens and works offline, then syncs later.
     localCache: F.persistentLocalCache({ tabManager: F.persistentMultipleTabManager() }),
   });
@@ -136,7 +137,11 @@ export async function createFirebaseStore(config, familyId, { mirror: localMirro
       }
       store.remoteEmpty = false;
       lastSeen = doc;
-      if (ops.length) commitOps(ops).catch((err) => console.error('Sync write failed', err));
+      if (ops.length)
+        commitOps(ops).catch((err) => {
+          console.error('Sync write failed', err);
+          window.dispatchEvent(new CustomEvent('sync-error', { detail: err })); // app.js shows a message
+        });
     },
 
     /** Calls cb(doc) when another device changes the board. */

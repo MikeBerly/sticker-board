@@ -10,7 +10,8 @@
  *            prizes: [{ id, name, emoji, tier }],
  *            wishes: [{ id, name, emoji, tier?, at }] }],   ideas a kid suggested, waiting for a grown-up
  *   events: [ { id, type: 'earn' | 'redeem', kidId, amount, label, emoji, tier?, at }
- *           | { id, type: 'undo', ref, kidId, at } ]
+ *           | { id, type: 'undo', ref, kidId, at }
+ *           | { id, type: 'pref', kidId, key, value, at } ]   a kid setting (e.g. jarStyle); the latest wins
  * }
  *
  * Totals are never stored: a kid's total = earned − redeemed, skipping undone events.
@@ -134,9 +135,17 @@ export function normalize(raw) {
 
   const kidIds = new Set(kids.map((k) => k.id));
   const events = list(d.events)
-    .filter((e) => (e.type === 'undo' ? typeof e.ref === 'string' : (e.type === 'earn' || e.type === 'redeem') && kidIds.has(e.kidId)))
-    .map((e) =>
+    .filter((e) =>
       e.type === 'undo'
+        ? typeof e.ref === 'string'
+        : e.type === 'pref'
+          ? kidIds.has(e.kidId) && typeof e.key === 'string' && typeof e.value === 'string'
+          : (e.type === 'earn' || e.type === 'redeem') && kidIds.has(e.kidId)
+    )
+    .map((e) =>
+      e.type === 'pref'
+        ? { id: str(e.id, uid()), type: 'pref', kidId: e.kidId, key: e.key, value: e.value, at: str(e.at, new Date().toISOString()) }
+        : e.type === 'undo'
         ? { id: str(e.id, uid()), type: 'undo', ref: e.ref, kidId: str(e.kidId), at: str(e.at, new Date().toISOString()) }
         : {
             id: str(e.id, uid()), type: e.type, kidId: e.kidId, amount: int(e.amount, 0, 0),
