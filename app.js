@@ -23,6 +23,8 @@ let unlockedUntil = 0;
 let lockTimer = null;
 let pop = null; // { kidId, from }: animate that kid's jar from an earlier level on the next render
 let selecting = null; // { kidId, ids: Set } while picking several history entries to undo at once
+let historyFilter = 'all'; // which history entries are shown (and can be picked): 'all', 'earn' or 'redeem'
+const shownInHistory = (e) => historyFilter === 'all' || e.type === historyFilter;
 
 /* ---------- helpers ---------- */
 const esc = (s) =>
@@ -463,7 +465,7 @@ async function undoSelected() {
   if (!selecting) return;
   const kid = kidById(selecting.kidId);
   const undone = undoneIds(data);
-  const evs = data.events.filter((e) => selecting.ids.has(e.id) && !undone.has(e.id) && e.type !== 'undo');
+  const evs = data.events.filter((e) => selecting.ids.has(e.id) && !undone.has(e.id) && e.type !== 'undo' && shownInHistory(e));
   if (!kid || !evs.length) return;
   if (!(await requireParent())) return;
   const lost = evs.filter((e) => e.type === 'earn').reduce((n, e) => n + e.amount, 0);
@@ -604,10 +606,21 @@ const actions = {
     if (!selecting) return;
     const undone = undoneIds(data);
     const live = data.events.filter(
-      (e) => e.kidId === selecting.kidId && e.type !== 'undo' && !undone.has(e.id) && localDate(new Date(e.at)) === day
+      (e) => e.kidId === selecting.kidId && e.type !== 'undo' && shownInHistory(e) && !undone.has(e.id) && localDate(new Date(e.at)) === day
     );
     const all = live.every((e) => selecting.ids.has(e.id));
     for (const e of live) all ? selecting.ids.delete(e.id) : selecting.ids.add(e.id);
+    render();
+  },
+  'history-filter': ({ filter }) => {
+    historyFilter = ['earn', 'redeem'].includes(filter) ? filter : 'all';
+    // Never undo something that's hidden: drop picks the new filter hides.
+    if (selecting) {
+      for (const id of [...selecting.ids]) {
+        const e = data.events.find((x) => x.id === id);
+        if (!e || !shownInHistory(e)) selecting.ids.delete(id);
+      }
+    }
     render();
   },
   'pick-none': () => {
@@ -1054,9 +1067,10 @@ function historyView(kid) {
     else { spent += e.amount; prizes++; }
   }
   const sel = selecting?.kidId === kid.id ? selecting.ids : null;
+  const shown = evs.filter(shownInHistory);
   // A heading for each day. While picking, each day gets a button that picks (or unpicks) all of its entries.
   const dayHead = (day) => {
-    const live = evs.filter((e) => localDate(new Date(e.at)) === day && !undone.has(e.id));
+    const live = shown.filter((e) => localDate(new Date(e.at)) === day && !undone.has(e.id));
     const label = new Date(day + 'T12:00').toLocaleDateString(undefined, { weekday: 'long', month: 'short', day: 'numeric' });
     const all = sel && live.length && live.every((e) => sel.has(e.id));
     const btn = sel && live.length
@@ -1065,7 +1079,7 @@ function historyView(kid) {
     return `<li class="day-head"><span>${day === localDate() ? 'Today' : esc(label)}</span>${btn}</li>`;
   };
   let lastDay = null;
-  const rows = evs
+  const rows = shown
     .map((e) => {
       const day = localDate(new Date(e.at));
       const head = day !== lastDay ? dayHead(day) : '';
@@ -1106,7 +1120,7 @@ function historyView(kid) {
         <div class="stat"><b>${Math.max(earned - spent, 0)}</b>stickers now</div>
       </div>
       ${
-        !rows
+        !evs.length
           ? ''
           : sel
             ? `<div class="select-bar">
@@ -1117,7 +1131,24 @@ function historyView(kid) {
               </div>`
             : `<div class="row start"><button class="btn ghost small" data-action="select-mode" data-kid="${esc(kid.id)}">☑️ Undo several at once</button></div>`
       }
-      ${rows ? `<ul class="ev-list">${rows}</ul>` : '<p class="empty">Nothing yet. Go earn some stickers! ⭐</p>'}
+      ${
+        evs.length
+          ? `<div class="filters" role="group" aria-label="Show">${[
+              ['all', 'Everything'],
+              ['earn', '⭐ Stickers earned'],
+              ['redeem', '🎁 Prizes'],
+            ]
+              .map(([f, label]) => `<button class="chip${historyFilter === f ? ' on' : ''}" data-action="history-filter" data-filter="${f}" aria-pressed="${historyFilter === f}">${label}</button>`)
+              .join('')}</div>`
+          : ''
+      }
+      ${
+        rows
+          ? `<ul class="ev-list">${rows}</ul>`
+          : evs.length
+            ? `<p class="empty">${historyFilter === 'redeem' ? 'No prizes yet.' : 'No stickers earned yet.'}</p>`
+            : '<p class="empty">Nothing yet. Go earn some stickers! ⭐</p>'
+      }
     </main>`
   );
 }
@@ -1339,6 +1370,7 @@ function render() {
   const r = parseRoute();
   const kid = r.view === 'kid' ? kidById(r.id) : null;
   if (!(kid && r.sub === 'history' && selecting?.kidId === kid.id)) selecting = null;
+  if (!(kid && r.sub === 'history')) historyFilter = 'all';
   let html;
   if (kid) {
     const views = { redeem: redeemView, history: historyView, wishes: wishesView };
