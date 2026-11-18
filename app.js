@@ -25,7 +25,8 @@ let lockTimer = null;
 let pop = null; // { kidId, from }: animate that kid's jar from an earlier level on the next render
 let selecting = null; // { kidId, ids: Set } while picking several history entries to undo at once
 let historyFilter = 'all'; // which history entries are shown (and can be picked): 'all', 'earn' or 'redeem'
-const shownInHistory = (e) => historyFilter === 'all' || e.type === historyFilter;
+const isHistoryEntry = (e) => e.type === 'earn' || e.type === 'redeem';
+const shownInHistory = (e) => isHistoryEntry(e) && (historyFilter === 'all' || e.type === historyFilter);
 
 /* ---------- helpers ---------- */
 const esc = (s) =>
@@ -466,7 +467,7 @@ async function undoSelected() {
   if (!selecting) return;
   const kid = kidById(selecting.kidId);
   const undone = undoneIds(data);
-  const evs = data.events.filter((e) => selecting.ids.has(e.id) && !undone.has(e.id) && e.type !== 'undo' && shownInHistory(e));
+  const evs = data.events.filter((e) => selecting.ids.has(e.id) && !undone.has(e.id) && shownInHistory(e));
   if (!kid || !evs.length) return;
   if (!(await requireParent())) return;
   const lost = evs.filter((e) => e.type === 'earn').reduce((n, e) => n + e.amount, 0);
@@ -531,7 +532,7 @@ async function importFile(file) {
   } catch (err) {
     return toast(err instanceof SyntaxError ? "That file isn't a sticker board backup." : err.message);
   }
-  const entries = incoming.events.filter((e) => e.type !== 'undo').length;
+  const entries = incoming.events.filter(isHistoryEntry).length;
   const names = incoming.kids.map((k) => k.name).join(' & ') || 'no kids';
   const ok = await confirmDialog(
     'Replace everything?',
@@ -607,7 +608,7 @@ const actions = {
     if (!selecting) return;
     const undone = undoneIds(data);
     const live = data.events.filter(
-      (e) => e.kidId === selecting.kidId && e.type !== 'undo' && shownInHistory(e) && !undone.has(e.id) && localDate(new Date(e.at)) === day
+      (e) => e.kidId === selecting.kidId && shownInHistory(e) && !undone.has(e.id) && localDate(new Date(e.at)) === day
     );
     const all = live.every((e) => selecting.ids.has(e.id));
     for (const e of live) all ? selecting.ids.delete(e.id) : selecting.ids.add(e.id);
@@ -711,6 +712,7 @@ const actions = {
     const k = kidById(kid);
     if (!k || !JAR_STYLES[style]) return;
     k.jarStyle = style;
+    data.events.push({ id: uid(), type: 'pref', kidId: k.id, key: 'jarStyle', value: style, at: nowIso() });
     if (isUnlocked()) extendUnlock();
     await commit();
     render();
@@ -848,7 +850,19 @@ function statusText(bal) {
 }
 
 /* ---------- the sticker jar (each kid picks a style in Settings; drawings live in jars.js) ---------- */
-const jarStyleOf = (kid) => (JAR_STYLES[kid.jarStyle] ? kid.jarStyle : 'potion');
+// The style is saved as a 'pref' event (events are add-only, so no device, even one running an
+// older copy of the app, can erase it), and on the kid as a fallback. The latest one wins.
+function jarStyleOf(kid) {
+  let pick = kid.jarStyle;
+  let at = '';
+  for (const e of data.events) {
+    if (e.type === 'pref' && e.kidId === kid.id && e.key === 'jarStyle' && e.at >= at) {
+      pick = e.value;
+      at = e.at;
+    }
+  }
+  return JAR_STYLES[pick] ? pick : 'potion';
+}
 
 function jarHTML(kid, bal, styleId = jarStyleOf(kid)) {
   const tiers = sortedTiers(data);
@@ -1059,7 +1073,7 @@ function fmtDate(iso) {
 function historyView(kid) {
   const undone = undoneIds(data);
   const evs = data.events
-    .filter((e) => e.kidId === kid.id && e.type !== 'undo')
+    .filter((e) => e.kidId === kid.id && isHistoryEntry(e))
     .sort((a, b) => b.at.localeCompare(a.at));
   let earned = 0, spent = 0, prizes = 0;
   for (const e of evs) {
@@ -1449,6 +1463,11 @@ async function startBoard() {
 }
 
 async function init() {
+  // A save the cloud refused (e.g. a permissions rule) would otherwise only show up later as a lost change.
+  window.addEventListener('sync-error', (e) => {
+    const code = e.detail?.code ? ` (${e.detail.code})` : '';
+    toast(`⚠️ That change didn't reach the cloud${code}. It may not stay.`);
+  });
   window.addEventListener('hashchange', () => {
     render();
     window.scrollTo(0, 0);
