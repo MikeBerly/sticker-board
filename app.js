@@ -600,13 +600,14 @@ const actions = {
     else selecting.ids.add(event);
     render();
   },
-  'pick-today': () => {
+  'pick-day': ({ day }) => {
     if (!selecting) return;
-    const today = localDate();
     const undone = undoneIds(data);
-    for (const e of data.events) {
-      if (e.kidId === selecting.kidId && e.type !== 'undo' && !undone.has(e.id) && localDate(new Date(e.at)) === today) selecting.ids.add(e.id);
-    }
+    const live = data.events.filter(
+      (e) => e.kidId === selecting.kidId && e.type !== 'undo' && !undone.has(e.id) && localDate(new Date(e.at)) === day
+    );
+    const all = live.every((e) => selecting.ids.has(e.id));
+    for (const e of live) all ? selecting.ids.delete(e.id) : selecting.ids.add(e.id);
     render();
   },
   'pick-none': () => {
@@ -1053,8 +1054,26 @@ function historyView(kid) {
     else { spent += e.amount; prizes++; }
   }
   const sel = selecting?.kidId === kid.id ? selecting.ids : null;
+  // A heading for each day. While picking, each day gets a button that picks (or unpicks) all of its entries.
+  const dayHead = (day) => {
+    const live = evs.filter((e) => localDate(new Date(e.at)) === day && !undone.has(e.id));
+    const label = new Date(day + 'T12:00').toLocaleDateString(undefined, { weekday: 'long', month: 'short', day: 'numeric' });
+    const all = sel && live.length && live.every((e) => sel.has(e.id));
+    const btn = sel && live.length
+      ? `<button class="btn ghost small" data-action="pick-day" data-day="${day}">${all ? 'Unpick this day' : `Pick all ${live.length}`}</button>`
+      : '';
+    return `<li class="day-head"><span>${day === localDate() ? 'Today' : esc(label)}</span>${btn}</li>`;
+  };
+  let lastDay = null;
   const rows = evs
     .map((e) => {
+      const day = localDate(new Date(e.at));
+      const head = day !== lastDay ? dayHead(day) : '';
+      lastDay = day;
+      return head + evRow(e);
+    })
+    .join('');
+  function evRow(e) {
       const u = undone.has(e.id);
       if (sel) {
         const picked = !u && sel.has(e.id);
@@ -1077,8 +1096,7 @@ function historyView(kid) {
         <span class="ev-amt">${e.type === 'earn' ? '+' : '−'}${e.amount}</span>
         ${u ? '' : `<button class="btn ghost small" data-action="undo" data-event="${esc(e.id)}">Undo</button>`}
       </li>`;
-    })
-    .join('');
+  }
   return (
     topbar(back(kidHref(kid), kid.name), `📜 ${esc(kid.name)}'s history`) +
     `<main class="history" style="--kid:${kid.color}">
@@ -1093,7 +1111,6 @@ function historyView(kid) {
           : sel
             ? `<div class="select-bar">
                 <span class="sel-count">${plural(sel.size, 'entry').replace('entrys', 'entries')} picked</span>
-                <button class="btn ghost small" data-action="pick-today">Pick all from today</button>
                 ${sel.size ? '<button class="btn ghost small" data-action="pick-none">Clear</button>' : ''}
                 <button class="btn ghost small" data-action="select-cancel">Cancel</button>
                 <button class="btn danger small" data-action="undo-selected" ${sel.size ? '' : 'disabled'}>↩️ Undo ${sel.size || ''}</button>
