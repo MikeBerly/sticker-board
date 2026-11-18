@@ -5,6 +5,7 @@ import store from './store.js';
 import { defaultData, normalize, balance, undoneIds, sortedTiers, uid } from './model.js';
 import { EMOJI_GROUPS, suggestEmoji } from './emoji.js';
 import { IDEAS } from './ideas.js';
+import { JAR_STYLES, JAR_FLOOR, JAR_SPAN } from './jars.js';
 
 const UNLOCK_MINUTES = 5;
 // Where the 🔍 button searches. The item's name goes on the end of each address.
@@ -20,7 +21,7 @@ const toastEl = document.getElementById('toast');
 let data;
 let unlockedUntil = 0;
 let lockTimer = null;
-let pop = null; // { kidId, from }: animate that kid's potion from an earlier level on the next render
+let pop = null; // { kidId, from }: animate that kid's jar from an earlier level on the next render
 let selecting = null; // { kidId, ids: Set } while picking several history entries to undo at once
 
 /* ---------- helpers ---------- */
@@ -691,6 +692,14 @@ const actions = {
     await commit();
     render();
   },
+  'set-style': async ({ kid, style }) => {
+    const k = kidById(kid);
+    if (!k || !JAR_STYLES[style]) return;
+    k.jarStyle = style;
+    if (isUnlocked()) extendUnlock();
+    await commit();
+    render();
+  },
   'set-color': async ({ kid, color }) => {
     const k = kidById(kid);
     if (!k) return;
@@ -823,17 +832,10 @@ function statusText(bal) {
   return canGet ? `Can get a ${canGet.name.toLowerCase()} prize ${canGet.emoji} · ${need}` : need;
 }
 
-/* ---------- the potion jar ---------- */
-const JAR_PATH =
-  'M68,30 L68,46 C68,60 22,60 22,94 L22,236 Q22,264 50,264 L170,264 Q198,264 198,236 L198,94 C198,60 152,60 152,46 L152,30';
-const JAR_FLOOR = 258; // where an empty jar's potion sits
-const JAR_SPAN = 162; // how far the potion rises to reach the top prize
-const rand = (i) => {
-  const x = Math.sin(i * 12.9898 + 78.233) * 43758.5453;
-  return x - Math.floor(x);
-};
+/* ---------- the sticker jar (each kid picks a style in Settings; drawings live in jars.js) ---------- */
+const jarStyleOf = (kid) => (JAR_STYLES[kid.jarStyle] ? kid.jarStyle : 'potion');
 
-function jarHTML(kid, bal) {
+function jarHTML(kid, bal, styleId = jarStyleOf(kid)) {
   const tiers = sortedTiers(data);
   const top = tiers.length ? tiers[tiers.length - 1].cost : 20;
   const level = (c) => JAR_FLOOR - (Math.min(Math.max(c, 0), top * 1.3) / top) * JAR_SPAN;
@@ -841,57 +843,27 @@ function jarHTML(kid, bal) {
   const from = pop && pop.kidId === kid.id ? level(pop.from) - y : 0;
   const key = (kid.id.replace(/[^\w-]/g, '') || 'k') + Math.floor(Math.random() * 1e6);
 
-  let wave = `M-110,${y}`;
-  for (let i = 0; i < 6; i++) wave += ' q27.5,-7 55,0 t55,0';
-  wave += ` L550,${y + 30} L-110,${y + 30} Z`;
-  const deep = JAR_FLOOR - y > 22;
-  const bubbles = deep
-    ? Array.from({ length: 7 }, (_, i) => {
-        const bx = (40 + rand(i + 40) * 140).toFixed(1);
-        const r = (3 + rand(i + 50) * 4).toFixed(1);
-        return `<circle class="bubble" cx="${bx}" cy="252" r="${r}" style="--rise:${(y - 242).toFixed(1)}px;animation-delay:${(rand(i + 60) * 3).toFixed(2)}s"/>`;
-      }).join('')
-    : '';
-  const sparkles = deep
-    ? [0, 1, 2].map((i) => `<text class="sparkle" x="${50 + i * 55}" y="${Math.min(Math.max(y + 34, 110) + i * 26, 250)}" style="animation-delay:${i * 0.5}s">✨</text>`).join('')
-    : '';
-
   // Prize tags sit beside the jar; nudge them apart if two costs are close together.
-  let lastTag = Infinity;
-  const marks = tiers
-    .map((t) => {
-      const ty = level(t.cost);
-      const tagY = Math.min(ty, lastTag - 28);
-      lastTag = tagY;
-      const got = bal >= t.cost;
-      return `<line class="tline${got ? ' got' : ''}" x1="27" x2="193" y1="${ty}" y2="${ty}"/>
-        <g class="tag${got ? ' got' : ''}" transform="translate(204 ${tagY})">
-          <rect x="0" y="-13" width="54" height="26" rx="13"/>
-          <text class="te" x="15" y="1">${t.emoji}</text><text class="tn" x="38" y="1">${t.cost}</text>
-        </g>`;
-    })
-    .join('');
+  const marks = (lineColor) => {
+    let lastTag = Infinity;
+    return tiers
+      .map((t) => {
+        const ty = level(t.cost);
+        const tagY = Math.min(ty, lastTag - 28);
+        lastTag = tagY;
+        const got = bal >= t.cost;
+        return `<line class="tline${got ? ' got' : ''}" x1="27" x2="193" y1="${ty}" y2="${ty}"${lineColor && !got ? ` style="stroke:${lineColor}"` : ''}/>
+          <g class="tag${got ? ' got' : ''}" transform="translate(204 ${tagY})">
+            <rect x="0" y="-13" width="54" height="26" rx="13"/>
+            <text class="te" x="15" y="1">${t.emoji}</text><text class="tn" x="38" y="1">${t.cost}</text>
+          </g>`;
+      })
+      .join('');
+  };
 
-  return `<svg class="jar" viewBox="0 0 262 272" role="img" aria-label="${esc(kid.name)}'s potion jar: ${Math.max(bal, 0)} stickers">
-    <defs>
-      <clipPath id="clip-${key}"><path d="${JAR_PATH} Z"/></clipPath>
-      <linearGradient id="liq-${key}" x1="0" y1="0" x2="0" y2="1">
-        <stop offset="0" stop-color="${kid.color}" stop-opacity=".75"/><stop offset="1" stop-color="${kid.color}"/>
-      </linearGradient>
-    </defs>
-    <path class="glass-bg" d="${JAR_PATH} Z"/>
-    <g clip-path="url(#clip-${key})">
-      <g class="liquid" style="--from:${from.toFixed(1)}px">
-        <path class="wave" d="${wave}" fill="${kid.color}" opacity=".55"/>
-        <rect x="0" y="${y + 4}" width="220" height="300" fill="url(#liq-${key})"/>
-        ${bubbles}${sparkles}
-      </g>
-    </g>
-    ${marks}
-    <path class="glass" d="${JAR_PATH}"/>
-    <path class="shine" d="M38,112 L38,226"/>
-    <rect x="58" y="8" width="104" height="25" rx="8" fill="${kid.color}"/>
-    <rect x="64" y="11" width="92" height="7" rx="3.5" fill="#fff" opacity=".35"/>
+  const style = JAR_STYLES[styleId] || JAR_STYLES.potion;
+  return `<svg class="jar" viewBox="0 0 262 272" role="img" aria-label="${esc(kid.name)}'s ${esc(style.name.toLowerCase())}: ${Math.max(bal, 0)} stickers">
+    ${style.draw({ y, from, key, color: kid.color, bal, full: bal >= top, marks })}
   </svg>`;
 }
 
@@ -1178,14 +1150,22 @@ function kidSettings(kid) {
       <label>Picture<button class="emoji-btn" data-action="pick-emoji" data-target="avatar" ${k} aria-label="Change ${esc(kid.name)}'s picture">${esc(kid.avatar)}</button></label>
       <label>Sticker<button class="emoji-btn" data-action="pick-emoji" data-target="sticker" ${k} aria-label="Change ${esc(kid.name)}'s sticker">${esc(kid.sticker)}</button></label>
     </div>
-    <h3>Potion color</h3>
+    <h3>Jar style</h3>
+    <div class="style-picks">${Object.entries(JAR_STYLES)
+      .map(
+        ([id, s]) => `<button class="style-pick${id === jarStyleOf(kid) ? ' on' : ''}" data-action="set-style" ${k} data-style="${id}" aria-pressed="${id === jarStyleOf(kid)}">
+          ${jarHTML(kid, Math.round((sortedTiers(data).at(-1)?.cost || 20) * 0.6), id)}<span>${esc(s.name)}</span>
+        </button>`
+      )
+      .join('')}</div>
+    <h3>Color</h3>
     <div class="potion-row">
       <div class="jar-preview">${jarHTML(kid, balance(data, kid.id))}</div>
       <div class="swatches">
         ${POTION_COLORS.map(
-          (c) => `<button class="swatch${c.toLowerCase() === kid.color.toLowerCase() ? ' on' : ''}" style="background:${c}" data-action="set-color" ${k} data-color="${c}" aria-label="Potion color ${c}"></button>`
+          (c) => `<button class="swatch${c.toLowerCase() === kid.color.toLowerCase() ? ' on' : ''}" style="background:${c}" data-action="set-color" ${k} data-color="${c}" aria-label="Jar color ${c}"></button>`
         ).join('')}
-        <label class="swatch custom" title="Pick any color"><input type="color" data-field="kid-color" ${k} value="${kid.color}" aria-label="Pick any potion color">🎨</label>
+        <label class="swatch custom" title="Pick any color"><input type="color" data-field="kid-color" ${k} value="${kid.color}" aria-label="Pick any jar color">🎨</label>
       </div>
     </div>
     <p class="hint">Icons pick themselves from the name you type. Tap an icon to choose a different one.</p>

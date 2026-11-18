@@ -5,7 +5,7 @@
  * {
  *   schemaVersion: 1,
  *   settings: { tiers: [{id, name, emoji, cost}], pinHash, sound, lastBackupAt },
- *   kids: [{ id, name, avatar, sticker, color,
+ *   kids: [{ id, name, avatar, sticker, color, jarStyle,
  *            jobs:   [{ id, name, emoji, stickers }],
  *            prizes: [{ id, name, emoji, tier }],
  *            wishes: [{ id, name, emoji, tier?, at }] }],   ideas a kid suggested, waiting for a grown-up
@@ -106,6 +106,7 @@ export function normalize(raw) {
     avatar: str(k.avatar, '🙂'),
     sticker: str(k.sticker, '⭐'),
     color: /^#[0-9a-f]{6}$/i.test(k.color) ? k.color : '#8b5cf6',
+    jarStyle: /^[a-z]{1,20}$/.test(k.jarStyle) ? k.jarStyle : 'potion', // see jars.js
     jobs: list(k.jobs).map((j) => ({
       id: str(j.id, uid()), name: str(j.name, 'Job'), emoji: str(j.emoji, '✅'), stickers: int(j.stickers, 1, 1),
       ...(j.autoEmoji === true ? { autoEmoji: true } : {}),

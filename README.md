@@ -40,7 +40,7 @@ The app starts with Shae at 15 stickers and Ellis at 22, their current jobs, and
 - **Walmart day:** tap a kid, then **🎁 Get a prize**. Pick a wish-list prize, or tap **Something else…** and type what they chose.
 - **Wish list ideas:** on a kid's page, tap **💡 Wish list**. Kids can type an idea, say it with the 🎤 on the keyboard, or tap one from **Need ideas?** No PIN is needed. Ideas wait under "Waiting for a grown-up" until a parent taps **✓ Add** and picks the prize size. The gallery's ideas live in `ideas.js`.
 - **Look it up:** the 🔍 button next to any idea or prize opens an Amazon.ca or Walmart.ca search for it. It asks for the PIN first, so kids don't end up in a store on their own.
-- **Potion jar:** each kid's potion rises as they earn stickers. Prize tags beside the jar turn gold at 5 🍬 Treat, 10 🎈 Small, 20 🎁 Medium and 30 🏆 Large. You can change those costs in ⚙️ Settings, and pick each kid's potion color there too.
+- **Sticker jar:** each kid's jar fills up as they earn stickers. Prize tags beside it turn gold at 5 🍬 Treat, 10 🎈 Small, 20 🎁 Medium and 30 🏆 Large. You can change those costs in ⚙️ Settings. Each kid also picks a **jar style** there (potion jar, rocket, gumball machine, beanstalk, ice cream tower, fish tank or hot air balloon) and a color. The styles are drawn in `jars.js`.
 - **Icons:** when you type a job or prize name, the icon picks itself ("Feed the dog" → 🐶). Tap any icon to choose another one from the picker. An icon you've picked by hand never changes on its own.
 - **Forgot the PIN?** Tap "Forgot PIN?" and answer the grown-up math question.
 
