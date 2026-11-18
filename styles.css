@@ -381,3 +381,21 @@ input[type='color'] { width: 64px; height: 48px; border: 2px solid var(--line); 
 .start-fail { min-height: 100dvh; display: grid; place-items: center; padding: 24px 16px; }
 .start-fail .panel { width: min(440px, 100%); }
 .start-emoji { font-size: 64px; margin: 0; }
+
+/* ---------- jar styles (settings picker + the extra animations some styles use) ---------- */
+.style-picks { display: grid; grid-template-columns: repeat(auto-fill, minmax(104px, 1fr)); gap: 8px; }
+.style-pick {
+  display: flex; flex-direction: column; align-items: center; gap: 4px;
+  padding: 8px 6px 10px; border-radius: 18px; border: 3px solid var(--line); background: var(--soft);
+  font-size: 14px; font-weight: 800; line-height: 1.2; text-align: center;
+}
+.style-pick .jar { width: 100%; max-width: 92px; }
+.style-pick.on { border-color: var(--kid); background: color-mix(in srgb, var(--kid) 10%, white); }
+.style-pick:active { transform: scale(0.96); }
+.bob { animation: bob 2.4s ease-in-out infinite; }
+.flame { animation: flicker 0.35s ease-in-out infinite alternate; }
+@keyframes bob { 50% { transform: translateY(-4px); } }
+@keyframes flicker { to { opacity: 0.55; } }
+@media (prefers-reduced-motion: reduce) {
+  .bob, .flame { animation: none; }
+}
