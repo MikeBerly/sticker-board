@@ -100,7 +100,10 @@ export function normalize(raw) {
   const tierIds = new Set(tiers.map((t) => t.id));
   const list = (v) => (Array.isArray(v) ? v.filter((x) => x && typeof x === 'object') : []);
 
+  // Fields this version doesn't know about are kept (the `...k`, `...j` and so on below), so a device running an
+  // older copy of the app never erases settings a newer copy added when it saves.
   const kids = list(d.kids).map((k) => ({
+    ...k,
     id: str(k.id, uid()),
     name: str(k.name, 'Kid'),
     avatar: str(k.avatar, '🙂'),
@@ -108,20 +111,25 @@ export function normalize(raw) {
     color: /^#[0-9a-f]{6}$/i.test(k.color) ? k.color : '#8b5cf6',
     jarStyle: /^[a-z]{1,20}$/.test(k.jarStyle) ? k.jarStyle : 'potion', // see jars.js
     jobs: list(k.jobs).map((j) => ({
+      ...j,
       id: str(j.id, uid()), name: str(j.name, 'Job'), emoji: str(j.emoji, '✅'), stickers: int(j.stickers, 1, 1),
       ...(j.autoEmoji === true ? { autoEmoji: true } : {}),
     })),
     prizes: list(k.prizes).map((p) => ({
+      ...p,
       id: str(p.id, uid()), name: str(p.name, 'Prize'), emoji: str(p.emoji, '🎁'),
       tier: tierIds.has(fixTier(p.tier)) ? fixTier(p.tier) : 'treat',
       ...(p.autoEmoji === true ? { autoEmoji: true } : {}),
     })),
-    wishes: list(k.wishes).map((w) => ({
-      id: str(w.id, uid()), name: str(w.name, 'Idea'), emoji: str(w.emoji, '🎁'),
-      ...(tierIds.has(w.tier) ? { tier: w.tier } : {}),
-      at: str(w.at, new Date().toISOString()),
-      ...(w.autoEmoji === true ? { autoEmoji: true } : {}),
-    })),
+    wishes: list(k.wishes).map((w) => {
+      const { tier, ...rest } = w;
+      return {
+        ...rest,
+        id: str(w.id, uid()), name: str(w.name, 'Idea'), emoji: str(w.emoji, '🎁'),
+        ...(tierIds.has(tier) ? { tier } : {}),
+        at: str(w.at, new Date().toISOString()),
+      };
+    }),
   }));
 
   const kidIds = new Set(kids.map((k) => k.id));
@@ -140,6 +148,7 @@ export function normalize(raw) {
   return {
     schemaVersion: SCHEMA_VERSION,
     settings: {
+      ...(d.settings && typeof d.settings === 'object' ? d.settings : {}),
       tiers,
       pinHash: typeof d.settings?.pinHash === 'string' ? d.settings.pinHash : null,
       sound: d.settings?.sound !== false,

@@ -8,6 +8,7 @@ import { IDEAS } from './ideas.js';
 import { JAR_STYLES, JAR_FLOOR, JAR_SPAN } from './jars.js';
 
 const UNLOCK_MINUTES = 5;
+const RELOAD_AFTER_AWAY_MS = 10 * 60000; // reopening the app after this long loads the newest version
 // Where the 🔍 button searches. The item's name goes on the end of each address.
 const SEARCH_SITES = [
   ['Amazon.ca', 'https://www.amazon.ca/s?k='],
@@ -1452,8 +1453,19 @@ async function init() {
     render();
     window.scrollTo(0, 0);
   });
+  // iPad keeps the app suspended in the background for days, so it can keep running an old copy.
+  // After a long time away, reload on return: that picks up any update (and the latest board).
+  let hiddenAt = 0;
   document.addEventListener('visibilitychange', () => {
-    if (!document.hidden && unlockedUntil && !isUnlocked()) {
+    if (document.hidden) {
+      hiddenAt = Date.now();
+      return;
+    }
+    if (hiddenAt && Date.now() - hiddenAt > RELOAD_AFTER_AWAY_MS && modalRoot.hidden) {
+      location.reload();
+      return;
+    }
+    if (unlockedUntil && !isUnlocked()) {
       unlockedUntil = 0;
       render();
     }
