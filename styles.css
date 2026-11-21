@@ -410,3 +410,18 @@ input[type='color'] { width: 64px; height: 48px; border: 2px solid var(--line); 
   font-size: 17px; font-weight: 800; min-height: 44px;
 }
 .chip.on { background: var(--kid); border-color: var(--kid); color: #fff; }
+
+/* Play mode: pretend stickers that are never saved */
+.jobs-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.play-banner {
+  margin: 0; padding: 10px 16px; border-radius: 16px; text-align: center;
+  font-size: 20px; font-weight: 800; color: #7c2d12;
+  background: repeating-linear-gradient(-45deg, #fef3c7 0 14px, #fde68a 14px 28px);
+}
+.playing .kid-progress { border-style: dashed; background: linear-gradient(180deg, color-mix(in srgb, var(--kid) 10%, white), #fff 60%); }
+.playing .kid-progress .jar { max-height: max(220px, calc(100dvh - 450px)); }
+.playing .big-total span { color: #b45309; }
+.show-undone { align-self: center; }
+@media (max-width: 900px), (orientation: portrait) {
+  .playing .kid-progress .jar { max-height: max(240px, calc(100dvh - 830px)); }
+}

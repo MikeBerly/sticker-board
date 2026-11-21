@@ -24,6 +24,8 @@ let unlockedUntil = 0;
 let lockTimer = null;
 let pop = null; // { kidId, from }: animate that kid's jar from an earlier level on the next render
 let selecting = null; // { kidId, ids: Set } while picking several history entries to undo at once
+let play = null; // { kidId, extra }: pretend stickers in Play mode (never saved)
+let showUndone = false; // history: also list entries that were undone
 let historyFilter = 'all'; // which history entries are shown (and can be picked): 'all', 'earn' or 'redeem'
 const isHistoryEntry = (e) => e.type === 'earn' || e.type === 'redeem';
 const shownInHistory = (e) => isHistoryEntry(e) && (historyFilter === 'all' || e.type === historyFilter);
@@ -412,6 +414,26 @@ function chime(notes = [523.25, 659.25, 783.99, 1046.5]) {
 }
 
 /* ---------- actions ---------- */
+/* Play mode: kids tap jobs just for fun. Nothing is saved, and the jar drains back afterwards. */
+function playAward(kid, job) {
+  if (!kid || !job) return;
+  const real = Math.max(balance(data, kid.id), 0);
+  pop = { kidId: kid.id, from: real + play.extra };
+  play.extra += job.stickers;
+  render();
+  celebrate(kid.sticker);
+  chime();
+}
+
+function stopPlay() {
+  if (!play) return;
+  const kid = kidById(play.kidId);
+  if (kid && play.extra) pop = { kidId: kid.id, from: Math.max(balance(data, kid.id), 0) + play.extra };
+  play = null;
+  render();
+  toast('🎈 All done playing! Back to the real stickers.');
+}
+
 async function award(kid, job) {
   if (!kid || !job) return;
   if (!(await requireParent())) return;
@@ -590,8 +612,23 @@ const actions = {
   },
   award: ({ kid, job }) => {
     const k = kidById(kid);
-    award(k, k?.jobs.find((j) => j.id === job));
+    const j = k?.jobs.find((x) => x.id === job);
+    if (play && play.kidId === kid) playAward(k, j);
+    else award(k, j);
   },
+  'toggle-undone': () => {
+    showUndone = !showUndone;
+    render();
+  },
+  'play-start': ({ kid }) => {
+    const k = kidById(kid);
+    if (!k) return;
+    play = { kidId: k.id, extra: 0 };
+    hideToast();
+    render();
+    toast('🎈 Play time! Tap a job to add pretend stickers.');
+  },
+  'play-stop': () => stopPlay(),
   undo: ({ event }) => undo(event),
   'select-mode': async ({ kid }) => {
     if (!kidById(kid) || !(await requireParent())) return;
@@ -922,7 +959,8 @@ function jobPoints(kid, n) {
 }
 
 function kidView(kid) {
-  const bal = balance(data, kid.id);
+  const playing = play && play.kidId === kid.id;
+  const bal = Math.max(balance(data, kid.id), 0) + (playing ? play.extra : 0);
   const jobs = kid.jobs.length
     ? kid.jobs
         .map(
@@ -936,19 +974,20 @@ function kidView(kid) {
     : '<p class="empty">No jobs yet. Add some in ⚙️ settings.</p>';
   return (
     topbar(back('#/', 'Board'), `${esc(kid.avatar)} ${esc(kid.name)}`) +
-    `<main class="kid-page" style="--kid:${kid.color}">
+    `<main class="kid-page${playing ? ' playing' : ''}" style="--kid:${kid.color}">
       <section class="kid-progress">
-        <div class="big-total"><b>${Math.max(bal, 0)}</b><span>${esc(kid.sticker)} stickers</span></div>
+        ${playing ? `<p class="play-banner">🎈 Pretend stickers! Just for fun, they won't be saved.</p>` : ''}
+        <div class="big-total"><b>${Math.max(bal, 0)}</b><span>${esc(kid.sticker)} ${playing ? 'pretend' : 'stickers'}</span></div>
         ${jarHTML(kid, bal)}
         <p class="status">${esc(statusText(bal))}</p>
       </section>
       <section class="jobs">
-        <div class="row kid-actions">
+        ${playing ? `<div class="row kid-actions"><button class="btn go" data-action="play-stop">✅ Done playing</button></div>` : `<div class="row kid-actions">
           <a class="btn" href="${kidHref(kid, 'redeem')}">🎁 Get a prize</a>
           <a class="btn ghost" href="${kidHref(kid, 'wishes')}">💡 Wish list${kid.wishes.length ? ` <span class="badge">${kid.wishes.length}</span>` : ''}</a>
           <a class="btn ghost" href="${kidHref(kid, 'history')}">📜 History</a>
-        </div>
-        <h2>Jobs</h2>
+        </div>`}
+        <div class="jobs-head"><h2>Jobs</h2>${playing ? '' : `<button class="btn ghost small" data-action="play-start" data-kid="${esc(kid.id)}">🎈 Play</button>`}</div>
         ${jobs}
       </section>
     </main>`
@@ -1082,7 +1121,8 @@ function historyView(kid) {
     else { spent += e.amount; prizes++; }
   }
   const sel = selecting?.kidId === kid.id ? selecting.ids : null;
-  const shown = evs.filter(shownInHistory);
+  const hiddenUndone = evs.filter((e) => shownInHistory(e) && undone.has(e.id)).length;
+  const shown = evs.filter((e) => shownInHistory(e) && (showUndone || !undone.has(e.id)));
   // A heading for each day. While picking, each day gets a button that picks (or unpicks) all of its entries.
   const dayHead = (day) => {
     const live = shown.filter((e) => localDate(new Date(e.at)) === day && !undone.has(e.id));
@@ -1164,6 +1204,9 @@ function historyView(kid) {
             ? `<p class="empty">${historyFilter === 'redeem' ? 'No prizes yet.' : 'No stickers earned yet.'}</p>`
             : '<p class="empty">Nothing yet. Go earn some stickers! ⭐</p>'
       }
+      ${hiddenUndone ? `<button class="btn ghost small show-undone" data-action="toggle-undone">${
+        showUndone ? 'Hide undone' : `Show ${hiddenUndone} undone`
+      }</button>` : ''}
     </main>`
   );
 }
@@ -1385,7 +1428,11 @@ function render() {
   const r = parseRoute();
   const kid = r.view === 'kid' ? kidById(r.id) : null;
   if (!(kid && r.sub === 'history' && selecting?.kidId === kid.id)) selecting = null;
-  if (!(kid && r.sub === 'history')) historyFilter = 'all';
+  if (!(kid && r.sub === 'history')) {
+    historyFilter = 'all';
+    showUndone = false;
+  }
+  if (play && !(kid && kid.id === play.kidId && !r.sub)) play = null; // left the kid's page: pretend stickers go away
   let html;
   if (kid) {
     const views = { redeem: redeemView, history: historyView, wishes: wishesView };
