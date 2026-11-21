@@ -929,7 +929,7 @@ function jarHTML(kid, bal, styleId = jarStyleOf(kid)) {
 
   const style = JAR_STYLES[styleId] || JAR_STYLES.potion;
   return `<svg class="jar" viewBox="0 0 262 272" role="img" aria-label="${esc(kid.name)}'s ${esc(style.name.toLowerCase())}: ${Math.max(bal, 0)} stickers">
-    ${style.draw({ y, from, key, color: kid.color, bal, full: bal >= top, marks })}
+    ${style.draw({ y, from, key, color: kid.color, bal, full: bal >= top, marks, tiers, top, prevBal: pop && pop.kidId === kid.id ? pop.from : bal })}
   </svg>`;
 }
 

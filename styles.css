@@ -425,3 +425,25 @@ input[type='color'] { width: 64px; height: 48px; border: 2px solid var(--line); 
 @media (max-width: 900px), (orientation: portrait) {
   .playing .kid-progress .jar { max-height: max(240px, calc(100dvh - 830px)); }
 }
+
+/* picture jar styles (treasure chest, sky, caterpillar, pizza, castle, dragon) */
+.j-emo { text-anchor: middle; dominant-baseline: central; }
+.j-drop { animation: j-drop 0.55s cubic-bezier(0.3, 1.4, 0.5, 1) both; }
+.j-pop { animation: j-pop 0.5s cubic-bezier(0.3, 1.6, 0.5, 1) both; transform-box: fill-box; transform-origin: center; }
+.j-twinkle { animation: j-twinkle 1.8s ease-in-out infinite alternate; }
+.j-hop { animation: j-hop 1.6s ease-in-out infinite; transform-box: fill-box; transform-origin: center bottom; }
+.j-wobble { animation: j-wobble 1.2s ease-in-out infinite; transform-box: fill-box; transform-origin: center bottom; }
+.j-flag { animation: j-flag 1s ease-in-out infinite alternate; transform-box: fill-box; transform-origin: left center; }
+.j-float { animation: j-float 1.4s ease-out both; }
+.j-steam { animation: j-steam 3.5s linear infinite; }
+@keyframes j-drop { from { transform: translateY(-160px); } }
+@keyframes j-pop { from { transform: scale(0); } }
+@keyframes j-twinkle { from { opacity: 0.35; } }
+@keyframes j-hop { 0%, 100% { transform: translateY(0) scale(1); } 15% { transform: scale(1.08, 0.92); } 40% { transform: translateY(-14px) scale(0.96, 1.04); } 65% { transform: translateY(0); } }
+@keyframes j-wobble { 0%, 60%, 100% { transform: rotate(0); } 70% { transform: rotate(-7deg); } 80% { transform: rotate(7deg); } 90% { transform: rotate(-4deg); } }
+@keyframes j-flag { to { transform: skewY(8deg) scaleX(0.9); } }
+@keyframes j-float { to { transform: translateY(-60px); opacity: 0; } }
+@keyframes j-steam { from { transform: translateY(0); opacity: 0.8; } to { transform: translateY(-50px); opacity: 0; } }
+@media (prefers-reduced-motion: reduce) {
+  .j-drop, .j-pop, .j-twinkle, .j-hop, .j-wobble, .j-flag, .j-float, .j-steam { animation: none; }
+}
