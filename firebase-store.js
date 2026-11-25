@@ -13,6 +13,7 @@
 
 const SDK = 'https://www.gstatic.com/firebasejs/10.12.2';
 const BATCH_LIMIT = 400;
+const LOAD_WAIT_MS = 6000; // after this, open with this device's last copy
 
 // JSON with sorted keys, so the same data always compares equal.
 function stable(v) {
@@ -103,12 +104,15 @@ export async function createFirebaseStore(config, familyId, { mirror: localMirro
     async load() {
       let famSnap, evSnap;
       try {
-        [famSnap, evSnap] = await Promise.all([F.getDoc(familyRef), F.getDocs(eventsCol)]);
+        // Offline, Firestore can take a long time to give up; don't keep the kids waiting.
+        const slow = new Promise((_, reject) => setTimeout(() => reject(new Error('Sync is slow to answer')), LOAD_WAIT_MS));
+        [famSnap, evSnap] = await Promise.race([Promise.all([F.getDoc(familyRef), F.getDocs(eventsCol)]), slow]);
       } catch (err) {
-        // Offline with nothing cached yet: fall back to this device's last copy.
+        // Offline (or very slow): show this device's last copy. Live updates arrive once it reconnects.
         console.warn('Sync unavailable, using this device’s copy', err);
         const mirror = await localMirror.load();
         if (mirror) lastSeen = mirror;
+        else store.loadFailed = true; // nothing to show yet: app.js asks to connect instead of starting fresh
         return mirror;
       }
       if (!famSnap.exists()) {

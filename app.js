@@ -1522,6 +1522,16 @@ async function startBoard() {
   } catch (err) {
     console.error('Could not read saved data', err);
   }
+  if (!saved && store.loadFailed) {
+    // Couldn't reach the synced board and this device has no copy yet. Never start a blank board here:
+    // saving it would replace the real one once the internet is back.
+    app.innerHTML = `<main class="start-fail"><div class="panel center">
+      <p class="start-emoji">📶</p><h2>The sticker board needs the internet</h2>
+      <p class="hint">This iPad hasn't loaded the board yet. Connect to Wi-Fi, then tap Try again.</p>
+      <button class="btn" onclick="location.reload()">Try again</button></div></main>`;
+    window.__appStarted = true;
+    return;
+  }
   const firstUpload = !saved && store.remoteEmpty;
   if (firstUpload) saved = await store.localCopy().catch(() => null); // this device's board from before syncing
   try {

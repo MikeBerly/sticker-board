@@ -1,7 +1,7 @@
 // Offline support. With internet, the app always loads its newest files (so updates show up on the
 // next launch); the saved copy is used only when offline or when the network is very slow.
 // Bump CACHE when the list of FILES changes.
-const CACHE = 'sticker-board-v13';
+const CACHE = 'sticker-board-v14';
 const FILES = [
   './', './index.html', './styles.css', './app.js', './model.js', './store.js', './emoji.js', './ideas.js', './jars.js', './fun.js', './firebase-config.js', './firebase-store.js',
   './manifest.webmanifest', './icon.svg', './icon-180.png', './icon-512.png',
@@ -49,8 +49,24 @@ self.addEventListener('fetch', (e) => {
       } catch {
         // offline: use the saved copy below
       }
-      const cached = await cache.match(e.request, { ignoreSearch: true });
-      return cached || network;
+      const opts = { ignoreSearch: true, ignoreVary: true };
+      const cached =
+        (await cache.match(e.request, opts)) ||
+        (await caches.match(e.request, opts)) || // an older saved copy, if that's all there is
+        (e.request.mode === 'navigate' ? (await caches.match('./', opts)) || (await caches.match('./index.html', opts)) : null);
+      if (cached) return cached;
+      try {
+        return await network;
+      } catch {
+        if (e.request.mode !== 'navigate') return Response.error();
+        // Offline and nothing saved: a friendly page instead of Safari's error.
+        return new Response(
+          '<!doctype html><meta name="viewport" content="width=device-width,initial-scale=1"><body style="font:20px system-ui;background:#fff6ea;color:#2b2238;display:grid;place-items:center;min-height:90vh;text-align:center;margin:0;padding:16px">' +
+            '<div><p style="font-size:64px;margin:0">📶</p><h2>The sticker board needs the internet this time</h2><p>Connect to Wi-Fi, then open it again. After that it works offline.</p>' +
+            '<button onclick="location.reload()" style="font:inherit;font-weight:800;padding:14px 28px;border-radius:999px;border:0;background:#7c3aed;color:#fff">Try again</button></div>',
+          { status: 503, headers: { 'Content-Type': 'text/html; charset=utf-8' } }
+        );
+      }
     })
   );
 });
