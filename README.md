@@ -36,6 +36,11 @@ The app starts with Shae at 15 stickers and Ellis at 22, their current jobs, and
 
 - **Award a sticker:** tap a kid, then tap a job. Enter the PIN if asked. It stays unlocked for 5 minutes; tap **🔓 Lock** to lock it sooner.
 - **Mistake?** Tap **Undo** in the message that appears, or undo any entry from that kid's 📜 History.
+- **🎈 Play:** on a kid's page, tap **🎈 Play** for the Play menu (no PIN needed). Everything is spoken out loud, so kids don't need to read; turn that off per iPad in ⚙️ Settings → Brushing and play.
+  - **🪥 Brush teeth** (also on the kid's page): a toothbrush timer that fills the kid's jar and calls out each part of the mouth. Set the length (1–3 minutes) in Settings. At the end, **⭐ Get my sticker** awards their brushing job after the grown-up PIN.
+  - **Numbers:** Count it, Fill the jar, Which has more?, Pop the bubbles, Add them up. **Letters:** First letter, Starts with…, Picture words. Each game gets harder (or easier) by itself for each kid; levels are saved on that kid's iPad. Nothing in a game changes stickers.
+  - **🤝 Play together:** fill one jar together from two iPads, or send each other a sticker that pops up on the other iPad. Brushing at the same time shows a brushing race. This needs one Firebase rules change the first time (see FIREBASE-SETUP.md).
+  - **🎈 Pretend stickers:** the original Play mode.
 - **Undo a lot at once:** in a kid's 📜 History, tap **☑️ Undo several at once**, tap the entries to undo (or **Pick all** next to a day to tick every entry from that day), then tap **↩️ Undo**. The **⭐ Stickers earned** and **🎁 Prizes** filters above the list limit both what you see and what Pick all picks.
 - **Walmart day:** tap a kid, then **🎁 Get a prize**. Pick a wish-list prize, or tap **Something else…** and type what they chose.
 - **Wish list ideas:** on a kid's page, tap **💡 Wish list**. Kids can type an idea, say it with the 🎤 on the keyboard, or tap one from **Need ideas?** No PIN is needed. Ideas wait under "Waiting for a grown-up" until a parent taps **✓ Add** and picks the prize size. The gallery's ideas live in `ideas.js`.

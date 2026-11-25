@@ -162,6 +162,7 @@ export function normalize(raw) {
       pinHash: typeof d.settings?.pinHash === 'string' ? d.settings.pinHash : null,
       sound: d.settings?.sound !== false,
       lastBackupAt: str(d.settings?.lastBackupAt) || null,
+      brushSeconds: Math.min(300, int(d.settings?.brushSeconds, 30, 60)), // toothbrush timer length
     },
     kids,
     events,
