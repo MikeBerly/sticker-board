@@ -77,16 +77,17 @@ export function togetherGames(k) {
       '🃏 Memory match',
       `<div class="mem-head"></div>
       <div class="mem-grid"></div>
-      <div class="row"><button class="btn ghost" data-new>🔁 New game</button></div>`
+      <div class="row"><button class="btn ghost" data-new="6">🔁 12 cards</button><button class="btn ghost" data-new="12">🔁 24 cards</button></div>`
     );
     let rec = {};
-    let busy = false;
     let saidTurn = null;
     let cheered = null;
+    let missSeen = null;
+    let missUntil = 0; // a missed pair stays face up until then (or until the next player taps)
 
-    function newGame() {
+    function newGame(pairs) {
       const partner = partnerOf(kid, here());
-      const faces = shuffle(PICS).slice(0, 6);
+      const faces = shuffle(PICS).slice(0, pairs);
       live
         .reset('memory', {
           id: uid(),
@@ -101,13 +102,14 @@ export function togetherGames(k) {
     }
     const players = () => (rec.players || []).map(kidById).filter(Boolean);
     const isDone = () => rec.cards && Object.keys(rec.matched || {}).length >= rec.cards.length;
+    const missShowing = () => rec.miss && Date.now() < missUntil && !(rec.flipped || []).length ? rec.miss.cards : [];
 
     function draw() {
       const head = app.querySelector('.mem-head');
       const grid = app.querySelector('.mem-grid');
       if (!head) return;
       if (!rec.cards) {
-        head.innerHTML = '<p class="mem-turn">Tap New game to start!</p>';
+        head.innerHTML = '<p class="mem-turn">Pick a game to start!</p>';
         grid.innerHTML = '';
         return;
       }
@@ -117,43 +119,45 @@ export function togetherGames(k) {
           .map((p) => `<span class="mem-score${p.id === rec.turn && !isDone() ? ' on' : ''}" style="--kid:${p.color}">${esc(p.avatar)} <b>${rec.scores?.[p.id] || 0}</b></span>`)
           .join('') +
         `<span class="mem-turn">${isDone() ? '🎉 All matched!' : turnKid ? `${esc(turnKid.avatar)} ${turnKid.id === kid.id ? 'Your' : `${esc(turnKid.name)}'s`} turn` : ''}</span>`;
+      const missed = missShowing();
+      grid.className = `mem-grid g${rec.cards.length}`;
       grid.innerHTML = rec.cards
         .map((face, i) => {
           const owner = kidById(rec.matched?.[i]);
-          const up = owner || (rec.flipped || []).includes(i);
-          return `<button class="mem-card${up ? ' up' : ''}${owner ? ' matched' : ''}" data-card="${i}"${owner ? ` style="--kid:${owner.color}"` : ''}><span>${up ? face : '❓'}</span></button>`;
+          const up = owner || (rec.flipped || []).includes(i) || missed.includes(i);
+          return `<button class="mem-card${up ? ' up' : ''}${owner ? ' matched' : ''}${missed.includes(i) ? ' missed' : ''}" data-card="${i}"${owner ? ` style="--kid:${owner.color}"` : ''}><span>${up ? face : '❓'}</span></button>`;
         })
         .join('');
     }
 
-    onCleanup(
-      live.watch(
-        'memory',
-        (r) => {
-          rec = r || {};
-          draw();
-          if (!rec.cards) return;
-          if (isDone()) {
-            if (cheered !== rec.id) {
-              cheered = rec.id;
-              celebrate('🃏', 26);
-              chime([523.25, 659.25, 783.99, 1046.5, 1318.5]);
-              say(cheerScores(players(), rec.scores));
-            }
-          } else if (rec.turn === kid.id && saidTurn !== `${rec.id}/${rec.turn}/${Object.keys(rec.matched || {}).length}` && !(rec.flipped || []).length) {
-            saidTurn = `${rec.id}/${rec.turn}/${Object.keys(rec.matched || {}).length}`;
-            if ((rec.players || []).length > 1) say(`Your turn, ${kid.name}!`);
-          }
-        },
-        fail
-      )
-    );
+    function changed() {
+      if (rec.miss?.id && rec.miss.id !== missSeen) {
+        missSeen = rec.miss.id;
+        missUntil = Date.now() + 1400;
+        later(draw, 1450);
+      }
+      draw();
+      if (!rec.cards) return;
+      if (isDone()) {
+        if (cheered !== rec.id) {
+          cheered = rec.id;
+          celebrate('🃏', 26);
+          chime([523.25, 659.25, 783.99, 1046.5, 1318.5]);
+          say(cheerScores(players(), rec.scores));
+        }
+      } else if (rec.turn === kid.id && (rec.players || []).length > 1 && saidTurn !== `${rec.id}/${rec.miss?.id || ''}`) {
+        saidTurn = `${rec.id}/${rec.miss?.id || ''}`;
+        if (rec.miss) say(`Your turn, ${kid.name}!`);
+      }
+    }
+    onCleanup(live.watch('memory', (r) => ((rec = r || {}), changed()), fail));
     later(() => say('Memory match! Find the pairs.'), 200);
 
     listen((e) => {
-      if (e.target.closest('[data-new]')) return newGame();
+      const n = e.target.closest('[data-new]');
+      if (n) return newGame(Number(n.dataset.new));
       const c = e.target.closest('[data-card]');
-      if (!c || !rec.cards || busy || isDone()) return;
+      if (!c || !rec.cards || isDone()) return;
       const i = Number(c.dataset.card);
       if (rec.turn !== kid.id) {
         const t = kidById(rec.turn);
@@ -162,37 +166,45 @@ export function togetherGames(k) {
       const flipped = rec.flipped || [];
       if (rec.matched?.[i] || flipped.includes(i) || flipped.length >= 2) return;
       const now = [...flipped, i];
-      const game = rec.id;
-      live.update('memory', { flipped: now }).catch(fail);
-      if (now.length < 2) return;
-      busy = true;
-      const [a, b] = now;
-      const match = rec.cards[a] === rec.cards[b];
-      if (match) chime([659.25, 880, 1046.5]);
-      later(() => {
-        busy = false;
-        if (rec.id !== game) return; // a new game started meanwhile
-        if (match) {
+      let change;
+      if (now.length < 2) {
+        change = { flipped: now };
+      } else {
+        // The second card settles the turn straight away, in one write, so the other iPad can go at once.
+        const [a, b] = now;
+        if (rec.cards[a] === rec.cards[b]) {
+          chime([659.25, 880, 1046.5]);
           say(pickPraise());
-          live.update('memory', { flipped: [], matched: { [a]: kid.id, [b]: kid.id }, scores: { [kid.id]: (rec.scores?.[kid.id] || 0) + 1 } }).catch(fail);
+          change = { flipped: [], matched: { [a]: kid.id, [b]: kid.id }, scores: { [kid.id]: (rec.scores?.[kid.id] || 0) + 1 } };
         } else {
           const ps = rec.players || [kid.id];
-          const next = ps[(ps.indexOf(kid.id) + 1) % ps.length];
-          live.update('memory', { flipped: [], turn: next }).catch(fail);
+          change = { flipped: [], turn: ps[(ps.indexOf(kid.id) + 1) % ps.length], miss: { cards: [a, b], id: uid() } };
         }
-      }, match ? 900 : 1600);
+      }
+      // Show it on this iPad right away; the shared record catches up.
+      rec = { ...rec, ...change, matched: { ...rec.matched, ...(change.matched || {}) }, scores: { ...rec.scores, ...(change.scores || {}) } };
+      changed();
+      live.update('memory', change).catch(fail);
     });
   }
   const pickPraise = () => ['A match!', 'You found a pair!', 'Great memory!'][Math.floor(Math.random() * 3)];
 
   /* ---------- Find the match ---------- */
+  const ring = (n, r) => Array.from({ length: n }, (_, i) => [50 + r * Math.cos((i / n) * 2 * Math.PI - Math.PI / 2), 50 + r * Math.sin((i / n) * 2 * Math.PI - Math.PI / 2)]);
   const SLOTS = {
     4: [[28, 30], [72, 30], [30, 72], [70, 70]],
     6: [[50, 17], [21, 38], [79, 38], [28, 76], [72, 76], [50, 52]],
+    8: [[50, 50], ...ring(7, 34)],
   };
+  const PIC_SCALE = { 4: 1, 6: 0.88, 8: 0.7 }; // more pictures per card means smaller pictures
+  const LEVELS = [
+    [4, '🙂 Easy'],
+    [6, '😃 Medium'],
+    [8, '🤩 Hard'],
+  ];
   function spotCards(rec, round) {
     const r = seeded((rec.seed || 1) * 31 + round);
-    const size = rec.size === 6 ? 6 : 4;
+    const size = SLOTS[rec.size] ? rec.size : 4;
     const pool = shuffleWith(PICS, r);
     const common = pool[0];
     const layout = (pics) =>
@@ -200,7 +212,7 @@ export function togetherGames(k) {
         p,
         x: SLOTS[size][i][0] + (r() * 8 - 4),
         y: SLOTS[size][i][1] + (r() * 8 - 4),
-        s: 0.8 + r() * 0.45,
+        s: (0.8 + r() * 0.45) * PIC_SCALE[size],
         rot: Math.round(r() * 70 - 35),
       }));
     return { common, a: layout([common, ...pool.slice(1, size)]), b: layout([common, ...pool.slice(size, size * 2 - 1)]) };
@@ -226,7 +238,7 @@ export function togetherGames(k) {
       const head = app.querySelector('.spot-head');
       const area = app.querySelector('.spot-area');
       if (!head) return;
-      const startButtons = `<div class="row"><button class="btn big-btn" data-size="4">🙂 Easy</button><button class="btn ghost big-btn" data-size="6">🤩 Harder</button></div>`;
+      const startButtons = `<div class="row">${LEVELS.map(([n, label], i) => `<button class="btn${i ? ' ghost' : ''} big-btn" data-size="${n}">${label}</button>`).join('')}</div>`;
       if (!rec.id) {
         head.innerHTML = '<p class="mem-turn">Pick a game!</p>';
         area.innerHTML = startButtons;

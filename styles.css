@@ -634,3 +634,8 @@ input[type='color'] { width: 64px; height: 48px; border: 2px solid var(--line); 
   .mem-grid { gap: 8px; }
   .spot-cards { grid-template-columns: 1fr; max-width: 420px; }
 }
+.mem-grid.g24 { grid-template-columns: repeat(6, 1fr); max-width: 860px; gap: 10px; }
+.mem-grid.g24 .mem-card { font-size: clamp(30px, 5.4vw, 52px); border-radius: 18px; }
+.mem-card.missed { background: #fff1f2; box-shadow: 0 0 0 3px #fda4af; }
+.send-grid { grid-template-columns: repeat(auto-fill, minmax(84px, 1fr)); }
+.send-btn { height: 84px; font-size: 46px; }

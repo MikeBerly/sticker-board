@@ -1,7 +1,7 @@
 // Offline support. With internet, the app always loads its newest files (so updates show up on the
 // next launch); the saved copy is used only when offline or when the network is very slow.
 // Bump CACHE when the list of FILES changes.
-const CACHE = 'sticker-board-v15';
+const CACHE = 'sticker-board-v16';
 const FILES = [
   './', './index.html', './styles.css', './app.js', './model.js', './store.js', './emoji.js', './ideas.js', './jars.js', './fun.js', './together.js', './firebase-config.js', './firebase-store.js',
   './manifest.webmanifest', './icon.svg', './icon-180.png', './icon-512.png',
