@@ -15,6 +15,8 @@
  * Spoken instructions can be turned off per iPad in Settings. Game levels are saved per kid on each iPad.
  */
 
+import { togetherGames } from './together.js';
+
 const ROUND = 5; // questions per game
 const FILL_TARGET = 40; // taps to fill the shared jar
 const PRESENCE_MS = 25000; // a sibling counts as "here" if seen this recently
@@ -197,7 +199,11 @@ export function createFun(ctx) {
     cur = { key, cleanup: [] };
     if (r.sub === 'play') return menu(kid);
     if (r.sub === 'brush') return brush(kid);
-    if (r.sub === 'together' && canTogether(kid)) return r.arg === 'fill' ? fillTogether(kid) : together(kid);
+    if (r.sub === 'together' && canTogether(kid)) {
+      if (r.arg === 'fill') return fillTogether(kid);
+      if (TOGETHER[r.arg]) return TOGETHER[r.arg](kid);
+      return together(kid);
+    }
     if (r.sub === 'game' && GAMES[r.arg]) return GAMES[r.arg].run(kid);
     location.hash = kidHref(kid);
   }
@@ -776,6 +782,9 @@ export function createFun(ctx) {
       `<div class="together-status"></div>
       <div class="pals">${friendsHTML(kid, here)}</div>
       <div class="fun-tiles big">
+        <a class="fun-tile" href="${kidHref(kid, 'together/memory')}"><span class="fun-emoji">🃏</span><span>Memory match</span></a>
+        <a class="fun-tile" href="${kidHref(kid, 'together/spot')}"><span class="fun-emoji">👀</span><span>Find the match</span></a>
+        <a class="fun-tile" href="${kidHref(kid, 'together/pong')}"><span class="fun-emoji">🏓</span><span>Pass the ball</span></a>
         <a class="fun-tile" href="${kidHref(kid, 'together/fill')}"><span class="fun-emoji">🫙</span><span>Fill the jar together</span></a>
       </div>
       <h2 class="fun-h">💌 Send a sticker</h2>
@@ -929,6 +938,31 @@ export function createFun(ctx) {
       }
     });
   }
+
+  // Memory match, Find the match and Pass the ball live in together.js.
+  const TOGETHER = togetherGames({
+    app,
+    live,
+    esc,
+    uid,
+    kidById,
+    say,
+    chime,
+    celebrate,
+    later,
+    every,
+    listen,
+    shuffle,
+    others,
+    presence,
+    friendsHTML,
+    PRESENCE_MS,
+    onCleanup: (fn) => cur?.cleanup.push(fn),
+    shell: (kid, title, body) => shell(kid, title, kidHref(kid, 'together'), 'Together', body),
+    failFor: (kid) => (err) => {
+      if (setupNeeded(err)) showSetup(kid);
+    },
+  });
 
   /* ---------- stickers sent by a sibling: pop up on any of the kid's screens ---------- */
   const seen = new Set();
