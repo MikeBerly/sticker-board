@@ -34,11 +34,42 @@ function shuffleWith(arr, r) {
   return a;
 }
 
+// Single-player games keep their record in memory on this iPad, one per kid, so they never mix
+// with a sibling's game. Same interface as store.live.
+const isObj = (v) => v && typeof v === 'object' && !Array.isArray(v);
+const merge = (a, b) => {
+  const out = { ...a };
+  for (const [key, v] of Object.entries(b)) out[key] = isObj(v) && isObj(a[key]) ? merge(a[key], v) : v;
+  return out;
+};
+const soloRecords = {};
+const soloSubs = {};
+const soloEmit = (name) => soloSubs[name]?.forEach((cb) => cb(soloRecords[name] || {}));
+const soloLive = {
+  watch(name, cb) {
+    (soloSubs[name] ||= new Set()).add(cb);
+    setTimeout(() => cb(soloRecords[name] || {}), 0);
+    return () => soloSubs[name].delete(cb);
+  },
+  async update(name, fields) {
+    soloRecords[name] = merge(soloRecords[name] || {}, fields);
+    soloEmit(name);
+  },
+  async reset(name, rec) {
+    soloRecords[name] = rec;
+    soloEmit(name);
+  },
+};
+
 export function togetherGames(k) {
   const { app, live, esc, uid, kidById, say, chime, celebrate, later, every, listen, onCleanup, shuffle } = k;
 
   // The page frame, plus the "who's here" row kept up to date.
-  function frame(kid, title, body) {
+  function frame(kid, title, body, solo = false) {
+    if (solo) {
+      app.innerHTML = k.soloShell(kid, title, body);
+      return { fail: () => {}, here: () => ({}) };
+    }
     app.innerHTML = k.shell(kid, title, `<div class="together-status"></div><div class="pals"></div>${body}`);
     const fail = k.failFor(kid);
     let here = {};
@@ -71,13 +102,16 @@ export function togetherGames(k) {
   };
 
   /* ---------- Memory match ---------- */
-  function memory(kid) {
+  function memory(kid, solo = false) {
+    const L = solo ? soloLive : live; // alone: a private game on this iPad; together: shared with the sibling
+    const NAME = solo ? `memory-${kid.id}` : 'memory';
     const { fail, here } = frame(
       kid,
       '🃏 Memory match',
       `<div class="mem-head"></div>
       <div class="mem-grid"></div>
-      <div class="row"><button class="btn ghost" data-new="6">🔁 12 cards</button><button class="btn ghost" data-new="12">🔁 24 cards</button></div>`
+      <div class="row"><button class="btn ghost" data-new="6">🔁 12 cards</button><button class="btn ghost" data-new="12">🔁 24 cards</button></div>`,
+      solo
     );
     let rec = {};
     let saidTurn = null;
@@ -88,11 +122,11 @@ export function togetherGames(k) {
     function newGame(pairs) {
       const partner = partnerOf(kid, here());
       const faces = shuffle(PICS).slice(0, pairs);
-      live
-        .reset('memory', {
+      L
+        .reset(NAME, {
           id: uid(),
           cards: shuffle([...faces, ...faces]),
-          players: partner ? [kid.id, partner.id] : [kid.id],
+          players: partner && !solo ? [kid.id, partner.id] : [kid.id],
           turn: kid.id,
           flipped: [],
           matched: {},
@@ -118,7 +152,9 @@ export function togetherGames(k) {
         players()
           .map((p) => `<span class="mem-score${p.id === rec.turn && !isDone() ? ' on' : ''}" style="--kid:${p.color}">${esc(p.avatar)} <b>${rec.scores?.[p.id] || 0}</b></span>`)
           .join('') +
-        `<span class="mem-turn">${isDone() ? '🎉 All matched!' : turnKid ? `${esc(turnKid.avatar)} ${turnKid.id === kid.id ? 'Your' : `${esc(turnKid.name)}'s`} turn` : ''}</span>`;
+        (solo
+          ? `<span class="mem-turn">${isDone() ? '🎉 All matched!' : ''} 🔁 ${rec.tries || 0} ${rec.tries === 1 ? 'try' : 'tries'}</span>`
+          : `<span class="mem-turn">${isDone() ? '🎉 All matched!' : turnKid ? `${esc(turnKid.avatar)} ${turnKid.id === kid.id ? 'Your' : `${esc(turnKid.name)}'s`} turn` : ''}</span>`);
       const missed = missShowing();
       grid.className = `mem-grid g${rec.cards.length}`;
       grid.innerHTML = rec.cards
@@ -143,14 +179,14 @@ export function togetherGames(k) {
           cheered = rec.id;
           celebrate('🃏', 26);
           chime([523.25, 659.25, 783.99, 1046.5, 1318.5]);
-          say(cheerScores(players(), rec.scores));
+          say(solo ? `You found them all in ${rec.tries || 0} tries! Great job, ${kid.name}!` : cheerScores(players(), rec.scores));
         }
       } else if (rec.turn === kid.id && (rec.players || []).length > 1 && saidTurn !== `${rec.id}/${rec.miss?.id || ''}`) {
         saidTurn = `${rec.id}/${rec.miss?.id || ''}`;
         if (rec.miss) say(`Your turn, ${kid.name}!`);
       }
     }
-    onCleanup(live.watch('memory', (r) => ((rec = r || {}), changed()), fail));
+    onCleanup(L.watch(NAME, (r) => ((rec = r || {}), changed()), fail));
     later(() => say('Memory match! Find the pairs.'), 200);
 
     listen((e) => {
@@ -172,19 +208,20 @@ export function togetherGames(k) {
       } else {
         // The second card settles the turn straight away, in one write, so the other iPad can go at once.
         const [a, b] = now;
+        const tries = solo ? { tries: (rec.tries || 0) + 1 } : {};
         if (rec.cards[a] === rec.cards[b]) {
           chime([659.25, 880, 1046.5]);
           say(pickPraise());
-          change = { flipped: [], matched: { [a]: kid.id, [b]: kid.id }, scores: { [kid.id]: (rec.scores?.[kid.id] || 0) + 1 } };
+          change = { ...tries, flipped: [], matched: { [a]: kid.id, [b]: kid.id }, scores: { [kid.id]: (rec.scores?.[kid.id] || 0) + 1 } };
         } else {
           const ps = rec.players || [kid.id];
-          change = { flipped: [], turn: ps[(ps.indexOf(kid.id) + 1) % ps.length], miss: { cards: [a, b], id: uid() } };
+          change = { ...tries, flipped: [], turn: ps[(ps.indexOf(kid.id) + 1) % ps.length], miss: { cards: [a, b], id: uid() } };
         }
       }
       // Show it on this iPad right away; the shared record catches up.
       rec = { ...rec, ...change, matched: { ...rec.matched, ...(change.matched || {}) }, scores: { ...rec.scores, ...(change.scores || {}) } };
       changed();
-      live.update('memory', change).catch(fail);
+      L.update(NAME, change).catch(fail);
     });
   }
   const pickPraise = () => ['A match!', 'You found a pair!', 'Great memory!'][Math.floor(Math.random() * 3)];
@@ -218,15 +255,17 @@ export function togetherGames(k) {
     return { common, a: layout([common, ...pool.slice(1, size)]), b: layout([common, ...pool.slice(size, size * 2 - 1)]) };
   }
 
-  function spot(kid) {
-    const { fail } = frame(kid, '👀 Find the match', `<div class="spot-head"></div><div class="spot-area"></div>`);
+  function spot(kid, solo = false) {
+    const L = solo ? soloLive : live;
+    const NAME = solo ? `spot-${kid.id}` : 'spot';
+    const { fail } = frame(kid, '👀 Find the match', `<div class="spot-head"></div><div class="spot-area"></div>`, solo);
     let rec = {};
     let frozenUntil = 0;
     let lastRound = null;
     let cheered = null;
 
     const newGame = (size) =>
-      live.reset('spot', { id: uid(), seed: Math.floor(Math.random() * 1e9), size, round: 0, target: 10, claims: {} }).catch(fail);
+      L.reset(NAME, { id: uid(), seed: Math.floor(Math.random() * 1e9), size, round: 0, target: 10, claims: {} }).catch(fail);
     const scores = () => {
       const s = {};
       for (const id of Object.values(rec.claims || {})) s[id] = (s[id] || 0) + 1;
@@ -245,7 +284,7 @@ export function togetherGames(k) {
         return;
       }
       const s = scores();
-      const ids = [kid.id, ...k.others(kid).map((o) => o.id)];
+      const ids = solo ? [kid.id] : [kid.id, ...k.others(kid).map((o) => o.id)];
       head.innerHTML =
         ids
           .map(kidById)
@@ -265,8 +304,7 @@ export function togetherGames(k) {
     }
 
     onCleanup(
-      live.watch(
-        'spot',
+      L.watch(NAME,
         (r) => {
           const prev = rec;
           rec = r || {};
@@ -283,7 +321,7 @@ export function togetherGames(k) {
             chime([523.25, 659.25, 783.99, 1046.5, 1318.5]);
             const s = scores();
             const ps = Object.keys(s).map(kidById).filter(Boolean);
-            say(cheerScores(ps.length > 1 ? ps : [kid], s));
+            say(solo ? `You found all ${rec.target}! Great job, ${kid.name}!` : cheerScores(ps.length > 1 ? ps : [kid], s));
           }
         },
         fail
@@ -301,7 +339,7 @@ export function togetherGames(k) {
         if (rec.claims?.[rec.round]) return;
         chime([659.25, 880, 1046.5]);
         say('Got it!');
-        live.update('spot', { round: rec.round + 1, claims: { [rec.round]: kid.id } }).catch(fail);
+        L.update(NAME, { round: rec.round + 1, claims: { [rec.round]: kid.id } }).catch(fail);
       } else {
         // A wrong tap pauses this player for a moment, so guessing doesn't pay.
         frozenUntil = Date.now() + 1200;
@@ -544,5 +582,5 @@ export function togetherGames(k) {
     });
   }
 
-  return { memory, spot, pong };
+  return { memory, spot, pong, soloMemory: (kid) => memory(kid, true), soloSpot: (kid) => spot(kid, true) };
 }

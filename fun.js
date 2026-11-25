@@ -225,6 +225,8 @@ export function createFun(ctx) {
       </div>
       <h2 class="fun-h">🔢 Numbers</h2>
       <div class="fun-tiles">${games(['count', 'fill', 'more', 'pop', 'add'])}</div>
+      <h2 class="fun-h">🧩 Puzzles</h2>
+      <div class="fun-tiles">${games(['memory', 'spot'])}</div>
       <h2 class="fun-h">🔤 Letters</h2>
       <div class="fun-tiles">${games(['letter', 'sound', 'words'])}</div>`
     );
@@ -398,6 +400,8 @@ export function createFun(ctx) {
     },
 
     fill: { name: 'Fill the jar', emoji: '🫙', run: (kid) => fillGame(kid) },
+    memory: { name: 'Memory match', emoji: '🃏', run: (kid) => TOGETHER.soloMemory(kid) },
+    spot: { name: 'Find the match', emoji: '👀', run: (kid) => TOGETHER.soloSpot(kid) },
     pop: { name: 'Pop the bubbles', emoji: '🫧', run: (kid) => popGame(kid) },
 
     letter: {
@@ -964,6 +968,7 @@ export function createFun(ctx) {
     PRESENCE_MS,
     onCleanup: (fn) => cur?.cleanup.push(fn),
     shell: (kid, title, body) => shell(kid, title, kidHref(kid, 'together'), 'Together', body),
+    soloShell: (kid, title, body) => shell(kid, title, kidHref(kid, 'play'), 'Play', body),
     failFor: (kid) => (err) => {
       if (setupNeeded(err)) showSetup(kid);
     },
