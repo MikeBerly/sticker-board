@@ -31,9 +31,14 @@
           '<p class="start-emoji">🧪</p><h2>The sticker board didn’t load</h2>' +
           '<p class="hint">Check the internet connection, then tap Reload. Your stickers are safe.</p>' +
           '<button class="btn" id="start-reload">Reload</button></div></main>';
+        // Only throw away the saved copy once a fresh one has actually downloaded. Offline, the saved copy
+        // is all there is, so then just try again.
         document.getElementById('start-reload').onclick = function () {
-          var clear = window.caches ? caches.keys().then(function (ks) { return Promise.all(ks.map(function (k) { return caches.delete(k); })); }) : Promise.resolve();
-          clear.catch(function () {}).then(function () { location.reload(); });
+          var fresh = navigator.onLine ? fetch('./', { cache: 'no-store' }).then(function (r) { if (!r.ok) throw r; }) : Promise.reject();
+          fresh
+            .then(function () { return window.caches ? caches.keys().then(function (ks) { return Promise.all(ks.map(function (k) { return caches.delete(k); })); }) : null; })
+            .catch(function () {})
+            .then(function () { location.reload(); });
         };
       }
       window.addEventListener('error', function (e) {
