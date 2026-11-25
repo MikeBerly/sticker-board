@@ -10,6 +10,11 @@
  *
  * Synced stores also have `auth` (sign in/out) — see firebase-store.js.
  *
+ * Every store also has `live`, small shared records for playing together (never part of the board):
+ *   live.watch(name, cb, onError) -> unsubscribe()   cb(record) now and whenever it changes
+ *   live.update(name, fields)     -> Promise           deep-merges fields into the record
+ *   live.reset(name, record)      -> Promise           replaces the record
+ *
  * Which store is used:
  *   - firebase-config.js has no config  -> saves on this device only (createLocalStore)
  *   - firebase-config.js has a config   -> syncs through Firebase (createFirebaseStore),
@@ -20,6 +25,49 @@ import { firebaseConfig, FAMILY_ID } from './firebase-config.js';
 const KEY = 'stickerBoard.v1'; // this device's own board (also the starting point when sync is first turned on)
 const SYNC_COPY_KEY = 'stickerBoard.syncCopy'; // a copy of the synced board, for opening offline
 
+const isObj = (v) => v && typeof v === 'object' && !Array.isArray(v);
+function deepMerge(a, b) {
+  const out = { ...a };
+  for (const [k, v] of Object.entries(b)) out[k] = isObj(v) && isObj(a[k]) ? deepMerge(a[k], v) : v;
+  return out;
+}
+
+// Live records for a store without sync: shared between tabs on this device only (handy for testing).
+function localLive() {
+  const PREFIX = 'stickerBoard.live.';
+  const read = (name) => {
+    try {
+      return JSON.parse(localStorage.getItem(PREFIX + name) || '{}');
+    } catch {
+      return {};
+    }
+  };
+  const listeners = new Map();
+  const emit = (name) => listeners.get(name)?.forEach((cb) => cb(read(name)));
+  window.addEventListener('storage', (e) => {
+    if (e.key?.startsWith(PREFIX)) emit(e.key.slice(PREFIX.length));
+  });
+  const write = (name, rec) => {
+    localStorage.setItem(PREFIX + name, JSON.stringify(rec));
+    emit(name);
+  };
+  return {
+    shared: false,
+    watch(name, cb) {
+      if (!listeners.has(name)) listeners.set(name, new Set());
+      listeners.get(name).add(cb);
+      setTimeout(() => cb(read(name)), 0);
+      return () => listeners.get(name)?.delete(cb);
+    },
+    async update(name, fields) {
+      write(name, deepMerge(read(name), fields));
+    },
+    async reset(name, rec) {
+      write(name, rec);
+    },
+  };
+}
+
 export function createLocalStore(key = KEY) {
   const KEY = key;
   // Ask the browser not to clear our data when space runs low (best effort).
@@ -27,6 +75,7 @@ export function createLocalStore(key = KEY) {
 
   return {
     name: 'this device',
+    live: localLive(),
 
     async load() {
       const raw = localStorage.getItem(KEY);

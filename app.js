@@ -6,6 +6,7 @@ import { defaultData, normalize, balance, undoneIds, sortedTiers, uid } from './
 import { EMOJI_GROUPS, suggestEmoji } from './emoji.js';
 import { IDEAS } from './ideas.js';
 import { JAR_STYLES, JAR_FLOOR, JAR_SPAN } from './jars.js';
+import { createFun, speechOn, setSpeech } from './fun.js';
 
 const UNLOCK_MINUTES = 5;
 const RELOAD_AFTER_AWAY_MS = 10 * 60000; // reopening the app after this long loads the newest version
@@ -623,6 +624,7 @@ const actions = {
   'play-start': ({ kid }) => {
     const k = kidById(kid);
     if (!k) return;
+    if (location.hash !== kidHref(k)) location.hash = kidHref(k); // started from the Play menu
     play = { kidId: k.id, extra: 0 };
     hideToast();
     render();
@@ -854,6 +856,8 @@ app.addEventListener('change', async (e) => {
     }
     case 'item-tier': item.tier = t.value; break;
     case 'sound': data.settings.sound = t.checked; break;
+    case 'brush-seconds': data.settings.brushSeconds = toInt(t.value, 30, 300) || 60; break;
+    case 'speak': setSpeech(t.checked); return; // this iPad only, not synced
     default: return;
   }
   if (isUnlocked()) extendUnlock();
@@ -987,7 +991,11 @@ function kidView(kid) {
           <a class="btn ghost" href="${kidHref(kid, 'wishes')}">💡 Wish list${kid.wishes.length ? ` <span class="badge">${kid.wishes.length}</span>` : ''}</a>
           <a class="btn ghost" href="${kidHref(kid, 'history')}">📜 History</a>
         </div>`}
-        <div class="jobs-head"><h2>Jobs</h2>${playing ? '' : `<button class="btn ghost small" data-action="play-start" data-kid="${esc(kid.id)}">🎈 Play</button>`}</div>
+        <div class="jobs-head"><h2>Jobs</h2>${
+          playing
+            ? ''
+            : `<span class="jobs-fun"><a class="btn ghost small" href="${kidHref(kid, 'brush')}">🪥 Brush</a><a class="btn ghost small" href="${kidHref(kid, 'play')}">🎈 Play</a></span>`
+        }</div>
         ${jobs}
       </section>
     </main>`
@@ -1318,6 +1326,15 @@ function settingsView() {
         <button class="btn ghost small" data-action="change-pin">Change PIN</button>
         <label class="check"><input type="checkbox" data-field="sound" ${data.settings.sound ? 'checked' : ''}> Play a sound when stickers are awarded</label>
       </section>
+      <section class="panel">
+        <h2>🪥 Brushing and play</h2>
+        <label class="tier-row">How long to brush
+          <select class="field" data-field="brush-seconds">${[60, 90, 120, 150, 180]
+            .map((s) => `<option value="${s}"${(data.settings.brushSeconds || 60) === s ? ' selected' : ''}>${s % 60 ? `${Math.floor(s / 60)}½` : s / 60} minute${s === 60 ? '' : 's'}</option>`)
+            .join('')}</select>
+        </label>
+        <label class="check"><input type="checkbox" data-field="speak" ${speechOn() ? 'checked' : ''}> Speak game instructions out loud on this iPad</label>
+      </section>
       ${syncPanelHTML()}
       <section class="panel">
         <h2>Backup</h2>
@@ -1413,11 +1430,36 @@ actions['sign-out'] = async () => {
   location.reload();
 };
 
+/* ---------- Play: toothbrush timer, games, playing together (see fun.js) ---------- */
+const fun = createFun({
+  app,
+  store,
+  esc,
+  uid,
+  kidById,
+  kidHref,
+  topbar,
+  back,
+  celebrate,
+  chime,
+  requireParent,
+  award,
+  data: () => data,
+  topCost: () => sortedTiers(data).at(-1)?.cost || 20,
+  // Draw a kid's jar at `bal` stickers, rising from `from` if given.
+  jarHTML(kid, bal, from) {
+    pop = from == null ? null : { kidId: kid.id, from };
+    const html = jarHTML(kid, bal);
+    pop = null;
+    return html;
+  },
+});
+
 /* ---------- routing ---------- */
 function parseRoute() {
   try {
-    const [view = 'board', id, sub] = location.hash.replace(/^#\/?/, '').split('/').filter(Boolean).map(decodeURIComponent);
-    return { view, id, sub };
+    const [view = 'board', id, sub, arg] = location.hash.replace(/^#\/?/, '').split('/').filter(Boolean).map(decodeURIComponent);
+    return { view, id, sub, arg };
   } catch {
     return { view: 'board' };
   }
@@ -1433,6 +1475,13 @@ function render() {
     showUndone = false;
   }
   if (play && !(kid && kid.id === play.kidId && !r.sub)) play = null; // left the kid's page: pretend stickers go away
+  if (kid && fun.isRoute(r.sub)) {
+    fun.render(kid, r); // Play screens draw themselves (see fun.js)
+    window.__appStarted = true;
+    pop = null;
+    return;
+  }
+  fun.leave();
   let html;
   if (kid) {
     const views = { redeem: redeemView, history: historyView, wishes: wishesView };
@@ -1507,7 +1556,12 @@ async function startBoard() {
     }
   });
   if (store.syncUnavailable) toast("⚠️ Sync couldn't start. Connect to the internet and reopen the app.");
+  if (!funStarted) {
+    funStarted = true;
+    fun.start(); // stickers sent between the kids' iPads
+  }
 }
+let funStarted = false;
 
 async function init() {
   // A save the cloud refused (e.g. a permissions rule) would otherwise only show up later as a lost change.

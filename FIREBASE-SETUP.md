@@ -53,3 +53,19 @@ The sync code is ready, but stays **off** until `firebase-config.js` has your pr
 ## Turning sync off again
 
 Set `firebaseConfig` back to `null` and upload `firebase-config.js`. Each device goes back to its own pre-sync board. Use Export/Import to carry the latest stickers over.
+
+## Playing together (two iPads)
+
+The Play menu's **🤝 Play together** games (fill a jar together, send a sticker, and the brushing race) share a few small records in `families/family/live/…`, separate from the board. If your rules only cover the board and its `events`, the app shows "Playing together isn't switched on yet". To switch it on:
+
+1. Open **console.firebase.google.com → Firestore Database → Rules**.
+2. Inside the `match /families/{familyId}` block, next to the `match /events/{eventId}` block, add:
+   ```
+   match /live/{doc} {
+     allow read, write: if <the same condition your events block uses>;
+   }
+   ```
+   Copy the condition from the `allow` line in the `events` block, so the same signed-in parents (and their kids' iPads) can use it.
+3. Click **Publish**. Then close and reopen the app on each iPad.
+
+These records never touch stickers or settings, so this can't change anyone's board.

@@ -80,6 +80,23 @@ export async function createFirebaseStore(config, familyId, { mirror: localMirro
       sendReset: (email) => A.sendPasswordResetEmail(auth, email.trim()),
     },
 
+    /**
+     * Small shared records for playing together, in families/{FAMILY_ID}/live/{name}.
+     * Separate from the board, so games can never change stickers or settings.
+     */
+    live: {
+      shared: true,
+      watch(name, cb, onError) {
+        return F.onSnapshot(
+          F.doc(familyRef, 'live', name),
+          (snap) => cb(snap.exists() ? snap.data() : {}),
+          (err) => onError?.(err)
+        );
+      },
+      update: (name, fields) => F.setDoc(F.doc(familyRef, 'live', name), fields, { merge: true }),
+      reset: (name, rec) => F.setDoc(F.doc(familyRef, 'live', name), rec),
+    },
+
     /** The copy saved on this device before syncing was turned on (used for the first upload). */
     localCopy: () => preSync.load(),
 
