@@ -702,3 +702,9 @@ input[type='color'] { width: 64px; height: 48px; border: 2px solid var(--line); 
   .potato-btn, .ttt-cell.win, .hide-bush.found { animation: none; }
 }
 .restart-row { margin-top: -4px; } .restart-row .link { margin-top: 0; }
+.copy-grid.big { width: min(420px, 86vw); }
+.hidden-pic { aspect-ratio: 1; place-items: center; background: #ede9fe; border-radius: 14px; font-size: 64px; display: grid; grid-template-columns: 1fr; }
+.copy-cell.right, .copy-cell.wrong { font-size: 22px; font-weight: 900; color: #fff; text-shadow: 0 1px 2px rgba(0, 0, 0, 0.5); }
+.copy-cell.right { box-shadow: 0 0 0 3px var(--good); }
+.copy-cell.wrong { box-shadow: 0 0 0 3px var(--bad); }
+.copy-count { display: inline-block; min-width: 1.4em; font-size: 40px; color: var(--kid); }
