@@ -177,6 +177,11 @@ export function moreGames(k, { frame, partnerOf }) {
   }
 
   /* ---------- Copy my picture ---------- */
+  // Two ways to play: 👀 look and copy (the picture stays up), or 🧠 remember it (10 seconds to look,
+  // then it hides; one free 3-second peek; tap Done to see how many squares match).
+  const REMEMBER_MS = 10000;
+  const PEEK_MS = 3000;
+
   function copy(kid) {
     const { fail, here } = frame(kid, '🎨 Copy my picture', `<div class="mem-head"></div><div class="copy-area"></div>${RESTART}`);
     let color = 0;
@@ -184,38 +189,56 @@ export function moreGames(k, { frame, partnerOf }) {
     let cheered = null;
     let robotRound = null;
     let sendTimer = null;
+    let view = null; // what the remember round is showing: 'show', 'peek' or 'hide'
     const s = sync('copy', fail, changed);
     onCleanup(() => clearTimeout(sendTimer));
 
     const blank = (n) => Array(n * n).fill(-1);
     const same = (a, b) => a && b && a.length === b.length && a.every((v, i) => v === b[i]);
-    function grid(cells, size, attr, small = false) {
+    const matches = (rec) => rec.pattern.filter((c, i) => c === rec.copy[i]).length;
+    function grid(cells, size, attr, small = false, marks = null) {
       return `<div class="copy-grid${small ? ' small' : ''}" style="--n:${size}">${cells
-        .map((c, i) => `<button class="copy-cell" ${attr ? `${attr}="${i}"` : 'disabled'} style="background:${c >= 0 ? COLORS[c] : '#fff'}"></button>`)
+        .map(
+          (c, i) =>
+            `<button class="copy-cell${marks ? (marks[i] ? ' right' : ' wrong') : ''}" ${attr ? `${attr}="${i}"` : 'disabled'} style="background:${c >= 0 ? COLORS[c] : '#fff'}">${marks ? (marks[i] ? '✓' : '✗') : ''}</button>`
+        )
         .join('')}</div>`;
     }
+    const hidden = (size) => `<div class="copy-grid small hidden-pic" style="--n:${size}"><span>❓</span></div>`;
     const palette = () =>
       `<div class="copy-palette">${COLORS.map((c, i) => `<button class="copy-color${i === color ? ' on' : ''}" data-color="${i}" style="background:${c}" aria-label="Color ${i + 1}"></button>`).join('')}</div>`;
+    // In a remember round: is the picture up right now?
+    const viewOf = (rec) => {
+      const now = Date.now();
+      if (rec.mode !== 'remember' || rec.phase !== 'copy') return null;
+      if (now < rec.showUntil) return 'show';
+      if (now < (rec.peekUntil || 0)) return 'peek';
+      return 'hide';
+    };
+    const secsLeft = (until) => Math.max(1, Math.ceil((until - Date.now()) / 1000));
+
     function newRound(maker, size) {
       const rec = s.get();
       const players = playersFor(kid, here, true);
       const n = size || rec.size || 3;
       draft = maker === kid.id ? blank(n) : null;
-      const r = { id: uid(), players, maker, size: n, pattern: blank(n), copy: blank(n), phase: 'make' };
+      const r = { id: uid(), players, maker, size: n, pattern: blank(n), copy: blank(n), phase: 'make', mode: rec.mode || 'look' };
       if (maker === ROBOT.id) {
         // The robot paints a few squares, a bit more each time.
         const cells = Math.min(n * n - 1, 2 + (rec.robotLevel || 1));
         const spots = [...Array(n * n).keys()].sort(() => Math.random() - 0.5).slice(0, cells);
         for (const i of spots) r.pattern[i] = Math.floor(Math.random() * COLORS.length);
-        r.phase = 'copy';
-        r.robotLevel = (rec.robotLevel || 1) + 1;
+        Object.assign(r, sendFields(r.mode, n), { robotLevel: (rec.robotLevel || 1) + 1 });
       }
       s.reset(r);
     }
+    const sendFields = (mode, n) => ({ copy: blank(n), phase: 'copy', mode, showUntil: mode === 'remember' ? Date.now() + REMEMBER_MS : 0, peekUntil: 0, peeked: false });
+
     function changed(rec) {
       const head = app.querySelector('.mem-head');
       const area = app.querySelector('.copy-area');
       if (!head) return;
+      view = viewOf(rec);
       if (!rec.id) {
         head.innerHTML = '';
         area.innerHTML = `<p class="mem-turn">Who makes the first picture?</p><div class="row"><button class="btn big-btn" data-start>🎨 Me!</button></div>`;
@@ -224,58 +247,110 @@ export function moreGames(k, { frame, partnerOf }) {
       const maker = who(rec.maker);
       const copier = who(rec.players.find((p) => p !== rec.maker));
       const iMake = rec.maker === kid.id;
-      head.innerHTML = chips(rec.players);
+      head.innerHTML = chips(rec.players) + (rec.phase !== 'make' ? `<span class="mem-turn">${rec.mode === 'remember' ? '🧠 Remember it' : '👀 Look and copy'}</span>` : '');
       if (rec.phase === 'make') {
         if (iMake) {
           if (!draft || draft.length !== rec.size * rec.size) draft = blank(rec.size);
+          const ready = draft.some((c) => c >= 0) ? '' : ' disabled';
           area.innerHTML = `<p class="mem-turn">Make a picture for ${esc(copier?.name || 'your partner')} to copy!</p>
             ${palette()}${grid(draft, rec.size, 'data-paint')}
             <div class="row">
               <button class="btn ghost" data-size="${rec.size === 3 ? 4 : 3}">${rec.size === 3 ? 'Bigger grid' : 'Smaller grid'}</button>
-              <button class="btn go big-btn" data-send${draft.some((c) => c >= 0) ? '' : ' disabled'}>✉️ Send</button>
+              <button class="btn go big-btn" data-send="look"${ready}>👀 Send: look and copy</button>
+              <button class="btn go big-btn" data-send="remember"${ready}>🧠 Send: remember it</button>
             </div>`;
         } else area.innerHTML = `<p class="mem-turn wait">${esc(maker?.avatar || '')} ${esc(maker?.name || '')} is making a picture…</p>`;
         return;
       }
       if (rec.phase === 'copy') {
         if (!iMake) {
-          area.innerHTML = `<p class="mem-turn">Copy ${esc(maker?.name || '')}'s picture!</p>
-            <div class="copy-pair"><div><p class="hint">Picture</p>${grid(rec.pattern, rec.size, null, true)}</div>
-            <div><p class="hint">Your copy</p>${palette()}${grid(rec.copy, rec.size, 'data-copy')}</div></div>`;
+          if (view === 'show')
+            area.innerHTML = `<p class="mem-turn">🧠 Remember it! <b class="copy-count">${secsLeft(rec.showUntil)}</b></p>${grid(rec.pattern, rec.size, null)}`;
+          else if (view)
+            area.innerHTML = `<p class="mem-turn">Now make it from memory!</p>
+              <div class="copy-pair"><div><p class="hint">${view === 'peek' ? '👀 Peek!' : 'Picture'}</p>${view === 'peek' ? grid(rec.pattern, rec.size, null, true) : hidden(rec.size)}</div>
+              <div><p class="hint">Your picture</p>${palette()}${grid(rec.copy, rec.size, 'data-copy')}</div></div>
+              <div class="row">
+                ${rec.peeked ? '' : `<button class="btn ghost big-btn" data-peek>👀 Peek (1)</button>`}
+                <button class="btn go big-btn" data-done>✅ Done</button>
+              </div>`;
+          else
+            area.innerHTML = `<p class="mem-turn">Copy ${esc(maker?.name || '')}'s picture!</p>
+              <div class="copy-pair"><div><p class="hint">Picture</p>${grid(rec.pattern, rec.size, null, true)}</div>
+              <div><p class="hint">Your copy</p>${palette()}${grid(rec.copy, rec.size, 'data-copy')}</div></div>`;
         } else
-          area.innerHTML = `<p class="mem-turn wait">${esc(copier?.avatar || '')} ${esc(copier?.name || '')} is copying…</p>
+          area.innerHTML = `<p class="mem-turn wait">${esc(copier?.avatar || '')} ${esc(copier?.name || '')} is ${
+            view === 'show' ? `remembering… <b class="copy-count">${secsLeft(rec.showUntil)}</b>` : view ? 'making it from memory…' : 'copying…'
+          }</p>
             <div class="copy-pair"><div><p class="hint">Your picture</p>${grid(rec.pattern, rec.size, null, true)}</div>
-            <div><p class="hint">${esc(copier?.name || '')}'s copy</p>${grid(rec.copy, rec.size, null, true)}</div></div>`;
-        // The robot copies one square at a time.
+            <div><p class="hint">${esc(copier?.name || '')}'s picture</p>${grid(rec.copy, rec.size, null, true)}</div></div>`;
         if (copier?.id === ROBOT.id && robotRound !== rec.id) {
           robotRound = rec.id;
-          const step = () => {
-            const r = s.get();
-            if (r.id !== rec.id || r.phase !== 'copy') return;
-            const i = r.pattern.findIndex((c, j) => c !== r.copy[j]);
-            if (i < 0) return;
-            const c2 = [...r.copy];
-            c2[i] = r.pattern[i];
-            chime([600]);
-            s.set(same(c2, r.pattern) ? { copy: c2, phase: 'done' } : { copy: c2 });
-            later(step, 700);
-          };
-          later(step, 1000);
+          robotCopy(rec);
         }
         return;
       }
-      // Done
-      area.innerHTML = `<p class="mem-turn">🎉 Perfect copy!</p>
-        <div class="copy-pair"><div>${grid(rec.pattern, rec.size, null, true)}</div><div>${grid(rec.copy, rec.size, null, true)}</div></div>
+      // Done: look-and-copy rounds end on a perfect copy; remember rounds show how many squares match.
+      const n = rec.size * rec.size;
+      const got = matches(rec);
+      const remember = rec.mode === 'remember';
+      const marks = remember ? rec.pattern.map((c, i) => c === rec.copy[i]) : null;
+      const verdict = !remember || got === n ? '🎉 Perfect!' : got >= n - 2 ? `So close! ${got} out of ${n}` : `Great try! ${got} out of ${n}`;
+      area.innerHTML = `<p class="mem-turn">${verdict}</p>
+        <div class="copy-pair"><div><p class="hint">${esc(maker?.name || '')}'s picture</p>${grid(rec.pattern, rec.size, null, true)}</div><div><p class="hint">${esc(copier?.name || '')}'s picture</p>${grid(rec.copy, rec.size, null, true, marks)}</div></div>
         <div class="row">${!iMake ? `<button class="btn big-btn" data-start>🎨 Now I'll make one!</button>` : `<button class="btn ghost big-btn" data-start>🎨 Make another</button>`}${
           copier?.id === ROBOT.id ? `<button class="btn ghost big-btn" data-robot>🤖 Robot's turn</button>` : ''
         }</div>`;
       if (cheered !== rec.id) {
         cheered = rec.id;
-        bigCheer('🎨');
-        say(copier?.id === ROBOT.id ? 'The robot copied it!' : `Perfect copy! Great job, ${copier?.name || ''}!`);
+        const name = copier?.id === ROBOT.id ? 'The robot' : copier?.name || '';
+        if (!remember || got === n) {
+          bigCheer('🎨');
+          say(remember ? `Perfect! ${name} remembered every square!` : copier?.id === ROBOT.id ? 'The robot copied it!' : `Perfect copy! Great job, ${name}!`);
+        } else {
+          celebrate('🎨', 14);
+          say(got >= n - 2 ? `So close! ${got} out of ${n}!` : `Great try! ${got} out of ${n}!`);
+        }
       }
     }
+
+    // The robot copies one square at a time (from memory it sometimes gets one wrong).
+    function robotCopy(rec) {
+      const todo = rec.pattern.map((c, i) => [i, c]).filter(([, c]) => c >= 0);
+      const step = () => {
+        const r = s.get();
+        if (r.id !== rec.id || r.phase !== 'copy') return;
+        if (r.mode === 'remember' && Date.now() < r.showUntil) return later(step, 500);
+        const next = todo.shift();
+        if (!next) return s.set({ phase: 'done' });
+        const [i, c] = next;
+        const c2 = [...r.copy];
+        c2[i] = r.mode === 'remember' && Math.random() < 0.15 ? (c + 1) % COLORS.length : c;
+        chime([600]);
+        if (r.mode !== 'remember' && same(c2, r.pattern)) return s.set({ copy: c2, phase: 'done' });
+        s.set({ copy: c2 });
+        later(step, 700);
+      };
+      later(step, 1000);
+    }
+
+    // Remember rounds: count down, hide the picture, and end a peek.
+    let lastSaid = null;
+    every(() => {
+      const rec = s.get();
+      const v = viewOf(rec);
+      if (v !== view) {
+        changed(rec);
+        if (rec.maker !== kid.id && lastSaid !== `${rec.id}/${v}`) {
+          lastSaid = `${rec.id}/${v}`;
+          if (v === 'hide') say('Now make it from memory!');
+        }
+      } else if (v === 'show') {
+        const c = app.querySelector('.copy-count');
+        if (c) c.textContent = secsLeft(rec.showUntil);
+      }
+    }, 250);
+
     later(() => say('Copy my picture!'), 200);
     listen((e) => {
       if (e.target.closest('[data-restart]')) return s.reset({});
@@ -300,22 +375,33 @@ export function moreGames(k, { frame, partnerOf }) {
         chime([500 + color * 60]);
         return changed(rec);
       }
-      if (e.target.closest('[data-send]') && draft?.some((c) => c >= 0)) {
-        say('Sent!');
-        return s.set({ pattern: [...draft], copy: blank(rec.size), phase: 'copy' });
+      const send = e.target.closest('[data-send]');
+      if (send && draft?.some((c) => c >= 0)) {
+        const mode = send.dataset.send === 'remember' ? 'remember' : 'look';
+        say(mode === 'remember' ? 'Sent! Remember it!' : 'Sent!');
+        return s.set({ pattern: [...draft], ...sendFields(mode, rec.size) });
+      }
+      if (e.target.closest('[data-peek]') && !rec.peeked) {
+        say('Peek!');
+        return s.set({ peeked: true, peekUntil: Date.now() + PEEK_MS });
+      }
+      if (e.target.closest('[data-done]') && rec.phase === 'copy') {
+        clearTimeout(sendTimer);
+        sendTimer = null;
+        return s.set({ copy: rec.copy, phase: 'done' });
       }
       const cp = e.target.closest('[data-copy]');
-      if (cp && rec.phase === 'copy' && rec.maker !== kid.id) {
+      if (cp && rec.phase === 'copy' && rec.maker !== kid.id && viewOf(rec) !== 'show') {
         const i = Number(cp.dataset.copy);
         const c2 = [...rec.copy];
         c2[i] = c2[i] === color ? -1 : color;
         chime([500 + color * 60]);
-        if (same(c2, rec.pattern)) {
+        if (rec.mode !== 'remember' && same(c2, rec.pattern)) {
           clearTimeout(sendTimer);
           sendTimer = null;
           return s.set({ copy: c2, phase: 'done' });
         }
-        // Show it here now; send the copy so far at most every quarter second.
+        // Show it here now; send the picture so far at most every quarter second.
         s.get().copy = c2;
         changed(s.get());
         if (!sendTimer)
