@@ -648,3 +648,57 @@ input[type='color'] { width: 64px; height: 48px; border: 2px solid var(--line); 
 .race-sizes { display: flex; flex-wrap: wrap; gap: 10px; justify-content: center; }
 .race-size { flex-direction: column; gap: 0; min-height: 64px; line-height: 1.15; }
 .race-size small { font-size: 15px; font-weight: 700; opacity: 0.85; }
+
+/* ---------- more together games (together2.js) ---------- */
+.mem-turn.wait { color: var(--muted); animation: twinkle 2s ease-in-out infinite; text-align: center; }
+.copy-area, .hide-area, .potato-area { display: flex; flex-direction: column; align-items: center; gap: 14px; text-align: center; }
+
+.ttt-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; width: min(440px, 90vw); margin: 0 auto; }
+.ttt-cell { aspect-ratio: 1; border-radius: 22px; border: 0; background: #fff; font-size: clamp(56px, 11vw, 96px); box-shadow: 0 5px 0 rgba(0, 0, 0, 0.12); }
+.ttt-cell[style] { background: color-mix(in srgb, var(--kid) 18%, white); }
+.ttt-cell.win { box-shadow: 0 0 0 5px var(--gold); animation: boing 0.8s ease-in-out infinite; }
+
+.copy-grid { display: grid; grid-template-columns: repeat(var(--n), 1fr); gap: 6px; width: min(360px, 80vw); }
+.copy-grid.small { width: min(220px, 40vw); gap: 4px; }
+.copy-cell { aspect-ratio: 1; border-radius: 12px; border: 3px solid var(--line); padding: 0; }
+.copy-grid.small .copy-cell { border-radius: 8px; border-width: 2px; }
+.copy-palette { display: flex; gap: 10px; justify-content: center; margin-bottom: 10px; }
+.copy-color { width: 58px; height: 58px; border-radius: 50%; border: 4px solid #fff; box-shadow: 0 0 0 2px var(--line); }
+.copy-color.on { box-shadow: 0 0 0 4px var(--ink); transform: scale(1.1); }
+.copy-pair { display: flex; gap: 24px; align-items: flex-end; justify-content: center; flex-wrap: wrap; }
+.copy-pair .hint { margin: 0 0 6px; font-weight: 800; }
+
+.hide-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; width: min(520px, 92vw); }
+.hide-bush { aspect-ratio: 1; border-radius: 24px; border: 0; background: #dcfce7; font-size: clamp(44px, 9vw, 74px); box-shadow: 0 5px 0 #86efac; }
+.hide-bush:not(:disabled):active { transform: scale(0.94); }
+.hide-bush.looked { background: #f1f5f9; box-shadow: none; opacity: 0.6; }
+.hide-bush.found { background: #fef9c3; box-shadow: 0 0 0 5px var(--gold); opacity: 1; animation: boing 0.8s ease-in-out infinite; }
+
+.potato-btn {
+  width: min(320px, 70vw); aspect-ratio: 1; border-radius: 50%; border: 0; font-size: min(170px, 36vw);
+  background: radial-gradient(circle, #fed7aa, #fb923c); box-shadow: 0 0 40px #f97316; animation: wobble 0.35s ease-in-out infinite;
+}
+.potato-btn.thrown { animation: thrown 0.4s forwards; }
+.potato-pop { font-size: 180px; animation: boing 0.6s; }
+@keyframes wobble { 25% { transform: rotate(-8deg) scale(1.03); } 75% { transform: rotate(8deg) scale(0.98); } }
+@keyframes thrown { to { transform: translateX(80vw) rotate(540deg) scale(0.4); opacity: 0; } }
+
+.tower-wrap { width: min(460px, 92vw); height: min(56vh, 560px); margin: 0 auto; background: linear-gradient(#e0f2fe, #f0f9ff); border-radius: 26px; overflow: hidden; }
+.tower-svg { width: 100%; height: 100%; display: block; }
+.tower-fall { animation: fall-block 0.9s ease-in forwards; transform-box: fill-box; transform-origin: center; }
+@keyframes fall-block { to { transform: translateY(120px) rotate(70deg); opacity: 0; } }
+.drop-btn { min-width: 240px; }
+
+.simon-pads { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; width: min(560px, 92vw); margin: 0 auto; }
+.simon-pad {
+  aspect-ratio: 1.3; border-radius: 30px; border: 0; font-size: clamp(48px, 9vw, 80px);
+  background: color-mix(in srgb, var(--pad) 45%, white); box-shadow: 0 6px 0 color-mix(in srgb, var(--pad) 55%, black);
+  transition: filter 0.1s, transform 0.1s;
+}
+.simon-pad.theirs { opacity: 0.45; transform: scale(0.82); }
+.simon-pad.lit { background: var(--pad); filter: brightness(1.25) drop-shadow(0 0 18px var(--pad)); transform: scale(1.04); opacity: 1; }
+.simon-pad.theirs.lit { transform: scale(0.88); }
+@media (prefers-reduced-motion: reduce) {
+  .potato-btn, .ttt-cell.win, .hide-bush.found { animation: none; }
+}
+.restart-row { margin-top: -4px; } .restart-row .link { margin-top: 0; }

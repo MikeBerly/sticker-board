@@ -10,6 +10,8 @@
  * fight over it. With no sibling around, each game also works alone.
  */
 
+import { moreGames } from './together2.js';
+
 const PICS = [
   '🐶', '🐱', '🦊', '🐸', '🐵', '🦁', '🐯', '🐷', '🐰', '🐻', '🐼', '🦄', '🐙', '🦋', '🐞', '🐢',
   '🦖', '🚀', '🌈', '⭐', '🍦', '🍕', '🎈', '⚽', '🍓', '🚗', '🌻', '🐳', '🍩', '🎸',
@@ -829,6 +831,7 @@ export function togetherGames(k) {
   }
 
   return {
+    ...moreGames(k, { frame, partnerOf }), // Tic-tac-toe, Copy my picture, Hide and seek, Hot potato, Build a tower, Simon says
     memory,
     spot,
     pong,
