@@ -794,6 +794,12 @@ export function createFun(ctx) {
         <a class="fun-tile" href="${kidHref(kid, 'together/spot')}"><span class="fun-emoji">👀</span><span>Find the match</span></a>
         <a class="fun-tile" href="${kidHref(kid, 'together/pong')}"><span class="fun-emoji">🏓</span><span>Pass the ball</span></a>
         <a class="fun-tile" href="${kidHref(kid, 'together/fill')}"><span class="fun-emoji">🫙</span><span>Fill the jar together</span></a>
+        <a class="fun-tile" href="${kidHref(kid, 'together/ttt')}"><span class="fun-emoji">⭕</span><span>Tic-tac-toe</span></a>
+        <a class="fun-tile" href="${kidHref(kid, 'together/copy')}"><span class="fun-emoji">🎨</span><span>Copy my picture</span></a>
+        <a class="fun-tile" href="${kidHref(kid, 'together/hide')}"><span class="fun-emoji">🌳</span><span>Hide and seek</span></a>
+        <a class="fun-tile" href="${kidHref(kid, 'together/potato')}"><span class="fun-emoji">🥔</span><span>Hot potato</span></a>
+        <a class="fun-tile" href="${kidHref(kid, 'together/tower')}"><span class="fun-emoji">🧱</span><span>Build a tower</span></a>
+        <a class="fun-tile" href="${kidHref(kid, 'together/simon')}"><span class="fun-emoji">🚦</span><span>Simon says</span></a>
       </div>
       <h2 class="fun-h">💌 Send a sticker</h2>
       <div class="send-grid">${SEND.map((e) => `<button class="send-btn" data-send="${e}">${e}</button>`).join('')}</div>`
