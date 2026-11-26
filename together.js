@@ -582,5 +582,259 @@ export function togetherGames(k) {
     });
   }
 
-  return { memory, spot, pong, soloMemory: (kid) => memory(kid, true), soloSpot: (kid) => spot(kid, true) };
+  /* ---------- Fill the jar: race the clock ---------- */
+  // Pick a jar, count down 3-2-1, then tap as fast as you can. The clock stops when the jar is full.
+  // Best times are kept for each jar size: one shared team record, and each kid's record when alone.
+  const JARS = [
+    [50, 'Small', 11],
+    [100, 'Big', 7.5],
+    [200, 'Giant', 5.4],
+  ]; // size, name, ball radius (sized so a full jar reaches the top)
+  const COUNTDOWN_MS = 3000;
+  const lighter = (hex) => {
+    const n = parseInt(String(hex).slice(1), 16);
+    if (Number.isNaN(n)) return hex;
+    const f = (v) => Math.round(v + (255 - v) * 0.45);
+    return `rgb(${f(n >> 16)},${f((n >> 8) & 255)},${f(n & 255)})`;
+  };
+  const raceTime = (ms) => {
+    const s = Math.max(0, ms) / 1000;
+    return s < 60 ? `${s.toFixed(1)}s` : `${Math.floor(s / 60)}:${(s % 60).toFixed(1).padStart(4, '0')}`;
+  };
+  const sayTime = (ms) => {
+    const s = Math.round(ms / 1000);
+    return s < 60 ? `${s} seconds` : `${Math.floor(s / 60)} minute${s >= 120 ? 's' : ''} ${s % 60} seconds`;
+  };
+  // Solo records live on the kid's own iPad.
+  const SOLO_KEY = 'stickerBoard.jarRace';
+  const soloBest = (kidId) => {
+    try {
+      return JSON.parse(localStorage.getItem(SOLO_KEY) || '{}')[kidId] || {};
+    } catch {
+      return {};
+    }
+  };
+  const saveSoloBest = (kidId, size, ms) => {
+    try {
+      const all = JSON.parse(localStorage.getItem(SOLO_KEY) || '{}');
+      (all[kidId] ||= {})[size] = ms;
+      localStorage.setItem(SOLO_KEY, JSON.stringify(all));
+    } catch {}
+  };
+
+  function jarSVG(size, colors) {
+    const [, , r] = JARS.find(([n]) => n === size) || JARS[0];
+    const dx = 2 * r + 1;
+    const dy = r * 1.8;
+    const cols = Math.floor(150 / dx);
+    const x0 = 110 - ((cols - 1) * dx) / 2;
+    const balls = colors
+      .map((color, i) => {
+        const row = Math.floor(i / cols);
+        const cx = x0 + (i % cols) * dx + (row % 2 ? dx / 2 : 0) - (row % 2 && i % cols === cols - 1 ? dx : 0);
+        const cy = 244 - r - row * dy;
+        return `<circle cx="${cx.toFixed(1)}" cy="${cy.toFixed(1)}" r="${r}" fill="${color}" stroke="#fff" stroke-width="${r > 6 ? 2 : 1}"/>`;
+      })
+      .join('');
+    const full = colors.length >= size;
+    return `<svg viewBox="0 0 220 272" class="jar">
+      <defs><clipPath id="race-dome"><path d="M30,250 L30,110 A80,80 0 0 1 190,110 L190,250 Z"/></clipPath></defs>
+      <path class="glass-bg" d="M30,250 L30,110 A80,80 0 0 1 190,110 L190,250 Z"/>
+      <g clip-path="url(#race-dome)">${balls}</g>
+      ${full ? '<text x="110" y="62" text-anchor="middle" font-size="40">🎉</text>' : ''}
+      <path class="glass" d="M30,250 L30,110 A80,80 0 0 1 190,110 L190,250 Z"/>
+      <path d="M22,250 L198,250 L186,270 L34,270 Z" fill="#a9c7d6"/>
+    </svg>`;
+  }
+
+  // Spread each color through the jar instead of in blocks.
+  function interleave(list) {
+    const groups = {};
+    for (const c of list) (groups[c] ||= 0), groups[c]++;
+    const entries = Object.entries(groups);
+    const left = entries.map(([, n]) => n);
+    const out = [];
+    while (out.length < list.length) {
+      let pick = -1;
+      for (let i = 0; i < left.length; i++) if (left[i] > 0 && (pick < 0 || left[i] / entries[i][1] > left[pick] / entries[pick][1])) pick = i;
+      out.push(entries[pick][0]);
+      left[pick]--;
+    }
+    return out;
+  }
+
+  function fill(kid, solo = false) {
+    const L = solo ? soloLive : live;
+    const NAME = solo ? `jarrace-${kid.id}` : 'jarrace';
+    const { fail } = frame(
+      kid,
+      solo ? '⏱️ Jar race' : '🫙 Fill the jar together',
+      `<div class="share-row">
+        <div class="share-jar"></div>
+        <div class="share-side">
+          <div class="race-time"></div>
+          <div class="share-count"></div>
+          <button class="tap-btn" data-tap style="--kid:${kid.color}"><span>${esc(kid.avatar)}</span>TAP!</button>
+          <div class="race-sizes"></div>
+        </div>
+      </div>`,
+      solo
+    );
+    let rec = {};
+    let game = null;
+    let mine = 0;
+    let teamBest = {};
+    let finished = null;
+    let spoken = null;
+    let sendTimer = null;
+    let lastPicked = 100;
+    let recordGame = null; // the game that set a new record
+
+    const best = (size) => (solo ? soloBest(kid.id)[size] : teamBest[size]) || null;
+    const total = () => Object.values(rec.taps || {}).reduce((s, n) => s + (Number(n) || 0), 0);
+    const phase = () => {
+      if (!rec.id) return 'pick';
+      if (rec.time) return 'done';
+      return Date.now() < rec.startAt ? 'countdown' : 'go';
+    };
+
+    function colors() {
+      const size = rec.size || 0;
+      if (rec.time) {
+        // Full: fill every ball, keeping each kid's share.
+        const t = total() || 1;
+        const all = solo ? [] : Object.entries(rec.taps || {}).flatMap(([id, n]) => Array(Math.round(((Number(n) || 0) / t) * size)).fill(kidById(id)?.color || kid.color));
+        while (all.length < size) all.push(solo ? (all.length % 2 ? kid.color : lighter(kid.color)) : kid.color);
+        if (!solo) return interleave(all.slice(0, size));
+        return all.slice(0, size);
+      }
+      if (solo) return Array.from({ length: Math.min(total(), size) }, (_, i) => (i % 2 ? kid.color : lighter(kid.color)));
+      // Balls in each kid's color, mixed in roughly the order they arrived.
+      const counts = Object.entries(rec.taps || {}).map(([id, n]) => [kidById(id)?.color || '#94a3b8', Number(n) || 0]);
+      const left = counts.map(([, c]) => c);
+      const seq = [];
+      while (seq.length < size && left.some((c) => c > 0)) {
+        let pick = -1;
+        for (let i = 0; i < left.length; i++) if (left[i] > 0 && (pick < 0 || left[i] / counts[i][1] > left[pick] / counts[pick][1])) pick = i;
+        seq.push(counts[pick][0]);
+        left[pick]--;
+      }
+      return seq;
+    }
+    function sizesHTML() {
+      return JARS.map(([n, label]) => {
+        const b = best(n);
+        return `<button class="btn${n === (rec.size || lastPicked) ? '' : ' ghost'} race-size" data-jar="${n}">${label} (${n})${b ? `<small>🏆 ${raceTime(b)}</small>` : ''}</button>`;
+      }).join('');
+    }
+    function paintJar() {
+      const box = app.querySelector('.share-jar');
+      if (box) box.innerHTML = jarSVG(rec.size || lastPicked, colors());
+      const count = app.querySelector('.share-count');
+      if (count) count.innerHTML = rec.id ? `<b>${rec.time ? rec.size : Math.min(total(), rec.size)}</b> / ${rec.size}` : '';
+    }
+    function paint() {
+      const p = phase();
+      const time = app.querySelector('.race-time');
+      if (!time) return;
+      const b = best(rec.size || lastPicked);
+      if (p === 'pick') time.innerHTML = `<span class="race-msg">Pick a jar!</span>`;
+      else if (p === 'countdown') time.innerHTML = `<span class="race-count">${Math.ceil((rec.startAt - Date.now()) / 1000)}</span>`;
+      else if (p === 'go') time.innerHTML = `${raceTime(Date.now() - rec.startAt)}${b ? `<small>🏆 ${raceTime(b)}</small>` : ''}`;
+      else time.innerHTML = `${raceTime(rec.time)}<small>${recordGame === rec.id ? '🎉 New record!' : b ? `🏆 ${raceTime(b)}` : ''}</small>`;
+      app.querySelector('[data-tap]').disabled = p !== 'go';
+      const sizes = app.querySelector('.race-sizes');
+      sizes.hidden = p === 'countdown' || p === 'go';
+      if (!sizes.hidden) sizes.innerHTML = sizesHTML();
+    }
+    // Countdown voice and clock, ten times a second.
+    every(() => {
+      const p = phase();
+      if (p === 'countdown' || p === 'go') {
+        const left = Math.ceil((rec.startAt - Date.now()) / 1000);
+        const word = p === 'go' ? 'Go!' : left <= 3 ? String(left) : null;
+        if (word && spoken !== `${rec.id}/${word}`) {
+          spoken = `${rec.id}/${word}`;
+          say(word);
+          chime(word === 'Go!' ? [783.99, 1046.5] : [523.25]);
+        }
+        paint();
+      }
+    }, 100);
+
+    function finish() {
+      if (finished === rec.id) return;
+      finished = rec.id;
+      const prev = best(rec.size);
+      const record = !prev || rec.time <= prev;
+      if (record) {
+        if (solo) saveSoloBest(kid.id, rec.size, rec.time);
+        else if (!teamBest[rec.size] || rec.time < teamBest[rec.size]) live.update('jarbest', { [rec.size]: rec.time }).catch(fail);
+      }
+      if (record) recordGame = rec.id;
+      celebrate(record ? '🏆' : '🎉', record ? 40 : 26);
+      chime([523.25, 659.25, 783.99, 1046.5, 1318.5]);
+      say(`Full! ${sayTime(rec.time)}!${record && prev ? ' A new record!' : ''}`);
+      paint();
+    }
+    const changed = () => {
+      if (rec.id !== game) {
+        game = rec.id;
+        mine = Number(rec.taps?.[kid.id]) || 0;
+      }
+      // Our own taps may be ahead of what the shared record has caught up to.
+      if (rec.id && !rec.time) rec = { ...rec, taps: { ...rec.taps, [kid.id]: Math.max(mine, Number(rec.taps?.[kid.id]) || 0) } };
+      // The sibling's taps arrive a moment later, so the jar can fill from their side: stop the clock here too.
+      if (rec.id && !rec.time && rec.startAt && total() >= rec.size) {
+        rec = { ...rec, time: Date.now() - rec.startAt };
+        L.update(NAME, { time: rec.time }).catch(fail);
+      }
+      paintJar();
+      paint();
+      if (rec.time) finish();
+    };
+    if (!solo) onCleanup(live.watch('jarbest', (b) => ((teamBest = b || {}), paint()), fail));
+    onCleanup(L.watch(NAME, (r) => ((rec = r || {}), changed()), fail));
+    onCleanup(() => clearTimeout(sendTimer));
+    paintJar();
+    paint();
+    later(() => say(solo ? 'Jar race! Pick a jar.' : 'Fill the jar together! Pick a jar.'), 200);
+
+    listen((e) => {
+      const j = e.target.closest('[data-jar]');
+      if (j) {
+        lastPicked = Number(j.dataset.jar);
+        L.reset(NAME, { id: uid(), size: lastPicked, startAt: Date.now() + COUNTDOWN_MS, taps: {} }).catch(fail);
+        return;
+      }
+      if (!e.target.closest('[data-tap]') || phase() !== 'go') return;
+      mine++;
+      rec = { ...rec, taps: { ...rec.taps, [kid.id]: mine } };
+      if (total() >= rec.size) {
+        clearTimeout(sendTimer);
+        sendTimer = null;
+        rec = { ...rec, time: Date.now() - rec.startAt };
+        L.update(NAME, { taps: { [kid.id]: mine }, time: rec.time }).catch(fail);
+        changed();
+        return;
+      }
+      paintJar();
+      chime([500 + (total() % 12) * 40]);
+      if (!sendTimer)
+        sendTimer = setTimeout(() => {
+          sendTimer = null;
+          if (rec.id && !rec.time) L.update(NAME, { taps: { [kid.id]: mine } }).catch(fail);
+        }, 200);
+    });
+  }
+
+  return {
+    memory,
+    spot,
+    pong,
+    fill,
+    soloMemory: (kid) => memory(kid, true),
+    soloSpot: (kid) => spot(kid, true),
+    soloFill: (kid) => fill(kid, true),
+  };
 }

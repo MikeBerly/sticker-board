@@ -18,7 +18,6 @@
 import { togetherGames } from './together.js';
 
 const ROUND = 5; // questions per game
-const FILL_TARGET = 40; // taps to fill the shared jar
 const PRESENCE_MS = 25000; // a sibling counts as "here" if seen this recently
 
 /* ---------- small helpers ---------- */
@@ -200,7 +199,6 @@ export function createFun(ctx) {
     if (r.sub === 'play') return menu(kid);
     if (r.sub === 'brush') return brush(kid);
     if (r.sub === 'together' && canTogether(kid)) {
-      if (r.arg === 'fill') return fillTogether(kid);
       if (TOGETHER[r.arg]) return TOGETHER[r.arg](kid);
       return together(kid);
     }
@@ -226,7 +224,7 @@ export function createFun(ctx) {
       <h2 class="fun-h">🔢 Numbers</h2>
       <div class="fun-tiles">${games(['count', 'fill', 'more', 'pop', 'add'])}</div>
       <h2 class="fun-h">🧩 Puzzles</h2>
-      <div class="fun-tiles">${games(['memory', 'spot'])}</div>
+      <div class="fun-tiles">${games(['memory', 'spot', 'race'])}</div>
       <h2 class="fun-h">🔤 Letters</h2>
       <div class="fun-tiles">${games(['letter', 'sound', 'words'])}</div>`
     );
@@ -402,6 +400,7 @@ export function createFun(ctx) {
     fill: { name: 'Fill the jar', emoji: '🫙', run: (kid) => fillGame(kid) },
     memory: { name: 'Memory match', emoji: '🃏', run: (kid) => TOGETHER.soloMemory(kid) },
     spot: { name: 'Find the match', emoji: '👀', run: (kid) => TOGETHER.soloSpot(kid) },
+    race: { name: 'Jar race', emoji: '⏱️', run: (kid) => TOGETHER.soloFill(kid) },
     pop: { name: 'Pop the bubbles', emoji: '🫧', run: (kid) => popGame(kid) },
 
     letter: {
@@ -830,121 +829,6 @@ export function createFun(ctx) {
       b.classList.add('sent');
       chime([880, 1174.66]);
       say(others(kid).length === 1 ? `Sent to ${others(kid)[0].name}!` : 'Sent!');
-    });
-  }
-
-  function fillTogether(kid) {
-    let rec = { round: 0, taps: {} };
-    let mine = 0;
-    let round = null;
-    let cheered = -1;
-    let sendTimer = null;
-    const kids = () => ctx.data().kids;
-    const total = () => Object.values(rec.taps || {}).reduce((s, n) => s + (Number(n) || 0), 0);
-
-    app.innerHTML = shell(
-      kid,
-      '🫙 Fill the jar together',
-      kidHref(kid, 'together'),
-      'Together',
-      `<div class="together-status"></div>
-      <div class="pals"></div>
-      <div class="share-row">
-        <div class="share-jar"></div>
-        <div class="share-side">
-          <div class="share-count"></div>
-          <button class="tap-btn" data-tap style="--kid:${kid.color}"><span>${esc(kid.avatar)}</span>TAP!</button>
-          <button class="btn ghost" data-again hidden>🔁 Again</button>
-        </div>
-      </div>`
-    );
-    function jar() {
-      // Balls in each kid's color, mixed in roughly the order they arrived.
-      const counts = kids().map((k) => [k, Math.min(Number(rec.taps?.[k.id]) || 0, FILL_TARGET)]);
-      const seq = [];
-      const left = counts.map(([, c]) => c);
-      while (seq.length < FILL_TARGET && left.some((c) => c > 0)) {
-        let best = -1;
-        for (let i = 0; i < left.length; i++) if (left[i] > 0 && (best < 0 || left[i] / (counts[i][1] || 1) > left[best] / (counts[best][1] || 1))) best = i;
-        seq.push(counts[best][0].color);
-        left[best]--;
-      }
-      const balls = seq
-        .map((color, i) => {
-          const row = Math.floor(i / 6);
-          const col = i % 6;
-          const cx = 52 + col * 23 + (row % 2 ? 11 : 0);
-          const cy = 236 - row * 20;
-          return `<circle cx="${cx}" cy="${cy}" r="11" fill="${color}" stroke="#fff" stroke-width="2"/>`;
-        })
-        .join('');
-      const full = total() >= FILL_TARGET;
-      app.querySelector('.share-jar').innerHTML = `<svg viewBox="0 0 220 272" class="jar">
-        <path class="glass-bg" d="M30,250 L30,110 A80,80 0 0 1 190,110 L190,250 Z"/>
-        ${balls}
-        <path class="glass" d="M30,250 L30,110 A80,80 0 0 1 190,110 L190,250 Z"/>
-        <path d="M22,250 L198,250 L186,270 L34,270 Z" fill="${kid.color}"/>
-        ${full ? '<text x="110" y="70" text-anchor="middle" font-size="44">🎉</text>' : ''}
-      </svg>`;
-      app.querySelector('.share-count').innerHTML = `<b>${Math.min(total(), FILL_TARGET)}</b> / ${FILL_TARGET}`;
-      app.querySelector('[data-tap]').disabled = full;
-      app.querySelector('[data-again]').hidden = !full;
-    }
-    const fail = (err) => {
-      if (setupNeeded(err)) showSetup(kid);
-    };
-    function send() {
-      if (sendTimer) return;
-      sendTimer = setTimeout(() => {
-        sendTimer = null;
-        live.update('filljar', { round, taps: { [kid.id]: mine } }).catch(fail);
-      }, 250);
-    }
-    cur.cleanup.push(() => clearTimeout(sendTimer));
-    presence(kid, fail);
-    let here = {};
-    cur.cleanup.push(
-      live.watch('here', (h) => {
-        here = h || {};
-        const box = app.querySelector('.pals');
-        if (box) box.innerHTML = friendsHTML(kid, here);
-      }, fail)
-    );
-    cur.cleanup.push(
-      live.watch(
-        'filljar',
-        (r) => {
-          const fresh = r && typeof r.round === 'number' ? r : { round: 0, taps: {} };
-          if (fresh.round !== round) {
-            round = fresh.round;
-            mine = Number(fresh.taps?.[kid.id]) || 0;
-          }
-          // Our own taps may be ahead of what the other iPad has seen.
-          rec = { round, taps: { ...(fresh.taps || {}), [kid.id]: Math.max(mine, Number(fresh.taps?.[kid.id]) || 0) } };
-          jar();
-          if (total() >= FILL_TARGET && cheered !== round) {
-            cheered = round;
-            celebrate('🎉', 30);
-            chime([523.25, 659.25, 783.99, 1046.5, 1318.5]);
-            say('You filled it together! Hooray!');
-          }
-        },
-        fail
-      )
-    );
-    later(() => say('Tap to fill the jar together!'), 300);
-    listen((e) => {
-      if (e.target.closest('[data-tap]')) {
-        if (round === null || total() >= FILL_TARGET) return;
-        mine++;
-        rec.taps = { ...rec.taps, [kid.id]: mine };
-        jar();
-        chime([600 + (total() % 8) * 60]);
-        send();
-        if (total() >= FILL_TARGET) live.update('filljar', { round, taps: { [kid.id]: mine } }).catch(fail);
-      } else if (e.target.closest('[data-again]')) {
-        live.reset('filljar', { round: (round || 0) + 1, taps: {} }).catch(fail);
-      }
     });
   }
 
