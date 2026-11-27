@@ -1365,7 +1365,7 @@ function syncPanelHTML() {
     <p class="backup-status">Signed in as ${esc(store.auth.user?.email || '')}</p>
     ${
       store.inMemory
-        ? '<p class="backup-status warn">This iPad is almost out of storage space, so the board isn\'t saved on it for offline use. It still syncs while online. To fix it, free up space in the iPad\'s Settings → General → iPad Storage.</p>'
+        ? '<p class="backup-status warn">Safari won\'t let the app save its offline copy on this iPad (its storage limit for the app is full), so the board isn\'t kept for offline use here. It still syncs normally while online. If you see this for long, removing the app from the Home Screen and adding it again resets that storage.</p>'
         : ''
     }
     <button class="btn ghost small" data-action="sign-out">Sign out of this device</button></section>`;
