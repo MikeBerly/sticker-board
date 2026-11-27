@@ -11,7 +11,7 @@
  * replace (importing a backup or removing a kid). Kids and settings are last-write-wins.
  */
 
-const SDK = 'https://www.gstatic.com/firebasejs/10.12.2';
+const SDK = 'https://www.gstatic.com/firebasejs/12.19.0';
 const BATCH_LIMIT = 400;
 const LOAD_WAIT_MS = 6000; // after this, open with this device's last copy
 
@@ -28,7 +28,55 @@ const sameDoc = (a, b) =>
   stable({ ...b, events: [...b.events].sort((x, y) => (x.id < y.id ? -1 : 1)) });
 const byTime = (a, b) => (a.at || '').localeCompare(b.at || '') || (a.id < b.id ? -1 : 1);
 
+/*
+ * Firestore's offline cache can get into a broken state on iPad ("INTERNAL ASSERTION FAILED: Unexpected
+ * state"), after which nothing syncs until the app restarts. When that happens: restart once; if it happens
+ * again straight away, clear this iPad's Firestore cache (the board itself is safe in the cloud) and restart.
+ */
+const RECOVER_KEY = 'stickerBoard.firestoreRecover';
+const isBroken = (err) => /INTERNAL ASSERTION FAILED|Unexpected state/i.test(String(err?.message || err || ''));
+let recovering = false;
+async function recover(projectId) {
+  if (recovering) return;
+  let tries = 0;
+  try {
+    tries = Number(sessionStorage.getItem(RECOVER_KEY)) || 0;
+  } catch {}
+  if (tries >= 2) return; // already tried both; leave the "can't connect" message up
+  recovering = true;
+  try {
+    sessionStorage.setItem(RECOVER_KEY, String(tries + 1));
+  } catch {}
+  console.warn('Firestore broke; recovering, step', tries + 1);
+  if (tries === 1) {
+    try {
+      const dbs = (await indexedDB.databases?.()) || [{ name: `firestore/[DEFAULT]/${projectId}/main` }];
+      await Promise.all(
+        dbs
+          .filter((d) => d.name?.startsWith('firestore/'))
+          .map((d) => new Promise((res) => {
+            const r = indexedDB.deleteDatabase(d.name);
+            r.onsuccess = r.onerror = r.onblocked = () => res();
+          }))
+      );
+    } catch {}
+  }
+  setTimeout(() => location.reload(), 300);
+}
+
 export async function createFirebaseStore(config, familyId, { mirror: localMirror, preSync }) {
+  const onBroken = (err) => {
+    if (isBroken(err)) recover(config.projectId);
+  };
+  window.addEventListener('error', (e) => onBroken(e.error || e.message));
+  window.addEventListener('unhandledrejection', (e) => onBroken(e.reason));
+  // Running fine for a minute: forget earlier recovery attempts.
+  setTimeout(() => {
+    try {
+      sessionStorage.removeItem(RECOVER_KEY);
+    } catch {}
+  }, 60000);
+
   const [{ initializeApp }, A, F] = await Promise.all([
     import(`${SDK}/firebase-app.js`),
     import(`${SDK}/firebase-auth.js`),
@@ -94,15 +142,30 @@ export async function createFirebaseStore(config, familyId, { mirror: localMirro
           return F.onSnapshot(
             F.doc(familyRef, 'live', name),
             (snap) => cb(snap.exists() ? snap.data() : {}),
-            (err) => onError?.(err)
+            (err) => (onBroken(err), onError?.(err))
           );
         } catch (err) {
+          onBroken(err);
           setTimeout(() => onError?.(err), 0);
           return () => {};
         }
       },
-      update: async (name, fields) => F.setDoc(F.doc(familyRef, 'live', name), fields, { merge: true }),
-      reset: async (name, rec) => F.setDoc(F.doc(familyRef, 'live', name), rec),
+      async update(name, fields) {
+        try {
+          return await F.setDoc(F.doc(familyRef, 'live', name), fields, { merge: true });
+        } catch (err) {
+          onBroken(err);
+          throw err;
+        }
+      },
+      async reset(name, rec) {
+        try {
+          return await F.setDoc(F.doc(familyRef, 'live', name), rec);
+        } catch (err) {
+          onBroken(err);
+          throw err;
+        }
+      },
     },
 
     /** The copy saved on this device before syncing was turned on (used for the first upload). */
@@ -117,6 +180,7 @@ export async function createFirebaseStore(config, familyId, { mirror: localMirro
       } catch (err) {
         // Offline (or very slow): show this device's last copy. Live updates arrive once it reconnects.
         console.warn('Sync unavailable, using this device’s copy', err);
+        onBroken(err);
         const mirror = await localMirror.load();
         if (mirror) lastSeen = mirror;
         else store.loadFailed = true; // nothing to show yet: app.js asks to connect instead of starting fresh
@@ -168,6 +232,7 @@ export async function createFirebaseStore(config, familyId, { mirror: localMirro
       if (ops.length)
         commitOps(ops).catch((err) => {
           console.error('Sync write failed', err);
+          onBroken(err);
           window.dispatchEvent(new CustomEvent('sync-error', { detail: err })); // app.js shows a message
         });
     },
@@ -186,13 +251,13 @@ export async function createFirebaseStore(config, familyId, { mirror: localMirro
         if (snap.metadata.hasPendingWrites || !snap.exists()) return; // our own write, already applied
         meta = metaOf(snap.data());
         emit();
-      });
+      }, onBroken);
       const stopEvents = F.onSnapshot(eventsCol, opts, (snap) => {
         if (snap.metadata.hasPendingWrites) return;
         events.clear();
         snap.forEach((d) => events.set(d.id, d.data()));
         emit();
-      });
+      }, onBroken);
       return () => {
         stopMeta();
         stopEvents();
