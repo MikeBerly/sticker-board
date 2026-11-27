@@ -759,10 +759,15 @@ export function createFun(ctx) {
   function setupNeeded(err) {
     return /permission|insufficient/i.test(String(err?.code || err?.message || ''));
   }
-  function showSetup(kid) {
+  function showSetup(kid, err) {
     const box = app.querySelector('.together-status');
-    if (box)
-      box.innerHTML = `<p class="backup-status warn">Playing together isn't switched on yet. Grown-ups: it needs one change to the Firebase rules (see "Playing together" in FIREBASE-SETUP.md).</p>`;
+    if (!box || box.dataset.shown) return;
+    box.dataset.shown = '1';
+    box.innerHTML = setupNeeded(err)
+      ? `<p class="backup-status warn">Playing together isn't switched on yet. Grown-ups: it needs one change to the Firebase rules (see "Playing together" in FIREBASE-SETUP.md).</p>`
+      : `<p class="backup-status warn">Playing together can't connect on this iPad right now. Tap Try again, or play on your own for now.
+          <button class="btn ghost small" onclick="location.reload()">Try again</button>
+          <small class="err-code">(${esc(String(err?.code || err?.name || 'error'))}: ${esc(String(err?.message || err).slice(0, 120))})</small></p>`;
   }
   // Tell the other iPads this kid is here, every 10 seconds while on a Together screen.
   function presence(kid, onError) {
@@ -805,7 +810,7 @@ export function createFun(ctx) {
       <div class="send-grid">${SEND.map((e) => `<button class="send-btn" data-send="${e}">${e}</button>`).join('')}</div>`
     );
     const fail = (err) => {
-      if (setupNeeded(err)) showSetup(kid);
+      showSetup(kid, err);
     };
     presence(kid, fail);
     const stop = live.watch(
@@ -860,7 +865,7 @@ export function createFun(ctx) {
     shell: (kid, title, body) => shell(kid, title, kidHref(kid, 'together'), 'Together', body),
     soloShell: (kid, title, body) => shell(kid, title, kidHref(kid, 'play'), 'Play', body),
     failFor: (kid) => (err) => {
-      if (setupNeeded(err)) showSetup(kid);
+      showSetup(kid, err);
     },
   });
 

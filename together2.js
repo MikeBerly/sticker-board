@@ -68,7 +68,21 @@ export function moreGames(k, { frame, partnerOf }) {
   // Keep a shared record in sync, showing our own change right away.
   function sync(name, fail, onChange) {
     let rec = {};
-    onCleanup(live.watch(name, (r) => ((rec = r || {}), onChange(rec)), fail));
+    let heard = false;
+    onCleanup(
+      live.watch(
+        name,
+        (r) => {
+          heard = true;
+          rec = r || {};
+          onChange(rec);
+        },
+        (err) => {
+          fail(err);
+          if (!heard) onChange(rec); // can't connect: still show the game, to play here (or with the robot)
+        }
+      )
+    );
     return {
       get: () => rec,
       set(change, merged) {
