@@ -229,17 +229,25 @@ export function togetherGames(k) {
   const pickPraise = () => ['A match!', 'You found a pair!', 'Great memory!'][Math.floor(Math.random() * 3)];
 
   /* ---------- Find the match ---------- */
-  const ring = (n, r) => Array.from({ length: n }, (_, i) => [50 + r * Math.cos((i / n) * 2 * Math.PI - Math.PI / 2), 50 + r * Math.sin((i / n) * 2 * Math.PI - Math.PI / 2)]);
+  const ring = (n, r, turn = 0) =>
+    Array.from({ length: n }, (_, i) => {
+      const a = ((i + turn) / n) * 2 * Math.PI - Math.PI / 2;
+      return [50 + r * Math.cos(a), 50 + r * Math.sin(a)];
+    });
   const SLOTS = {
     4: [[28, 30], [72, 30], [30, 72], [70, 70]],
     6: [[50, 17], [21, 38], [79, 38], [28, 76], [72, 76], [50, 52]],
     8: [[50, 50], ...ring(7, 34)],
+    10: [...ring(3, 15, 0.5), ...ring(7, 36)],
+    12: [...ring(4, 17, 0.5), ...ring(8, 37)],
   };
-  const PIC_SCALE = { 4: 1, 6: 0.88, 8: 0.7 }; // more pictures per card means smaller pictures
+  const PIC_SCALE = { 4: 1, 6: 0.88, 8: 0.7, 10: 0.58, 12: 0.5 }; // more pictures per card means smaller pictures
   const LEVELS = [
     [4, '🙂 Easy'],
     [6, '😃 Medium'],
     [8, '🤩 Hard'],
+    [10, '🔥 Super hard'],
+    [12, '🤯 Expert'],
   ];
   function spotCards(rec, round) {
     const r = seeded((rec.seed || 1) * 31 + round);
@@ -249,10 +257,10 @@ export function togetherGames(k) {
     const layout = (pics) =>
       shuffleWith(pics, r).map((p, i) => ({
         p,
-        x: SLOTS[size][i][0] + (r() * 8 - 4),
-        y: SLOTS[size][i][1] + (r() * 8 - 4),
+        x: SLOTS[size][i][0] + (r() * 8 - 4) * (size >= 10 ? 0.4 : 1),
+        y: SLOTS[size][i][1] + (r() * 8 - 4) * (size >= 10 ? 0.4 : 1),
         s: (0.8 + r() * 0.45) * PIC_SCALE[size],
-        rot: Math.round(r() * 70 - 35),
+        rot: Math.round((r() * 70 - 35) * (size >= 10 ? 2.4 : 1)), // the hardest levels spin pictures right round
       }));
     return { common, a: layout([common, ...pool.slice(1, size)]), b: layout([common, ...pool.slice(size, size * 2 - 1)]) };
   }
