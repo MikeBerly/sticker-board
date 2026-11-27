@@ -1363,6 +1363,11 @@ function syncPanelHTML() {
   return `<section class="panel"><h2>☁️ Syncing</h2>
     <p class="hint">Changes show up on every signed-in device within a few seconds. Without internet, changes are kept and sent once it reconnects.</p>
     <p class="backup-status">Signed in as ${esc(store.auth.user?.email || '')}</p>
+    ${
+      store.inMemory
+        ? '<p class="backup-status warn">This iPad is almost out of storage space, so the board isn\'t saved on it for offline use. It still syncs while online. To fix it, free up space in the iPad\'s Settings → General → iPad Storage.</p>'
+        : ''
+    }
     <button class="btn ghost small" data-action="sign-out">Sign out of this device</button></section>`;
 }
 
