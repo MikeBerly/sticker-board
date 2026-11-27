@@ -41,14 +41,24 @@ function saveSoloBest(kidId, game, n) {
   } catch {}
 }
 
-export function moreGames(k, { frame, partnerOf }) {
+export function moreGames(k, { frame, partnerOf, soloLive }) {
   const { app, live, esc, uid, kidById, say, chime, celebrate, later, every, listen, onCleanup } = k;
   const who = (id) => (id === ROBOT.id ? ROBOT : kidById(id));
   const pick = (arr) => arr[Math.floor(Math.random() * arr.length)];
   // Players for a new game: me and my sibling if they're here, otherwise me and the robot (or just me).
-  function playersFor(kid, here, robot) {
+  function playersFor(kid, here, robot, solo) {
+    if (solo) return robot ? [kid.id, ROBOT.id] : [kid.id];
     const p = partnerOf(kid, here());
-    return p ? [kid.id, p.id] : robot ? [kid.id, ROBOT.id] : [kid.id];
+    return p ? [kid.id, p.id] : null; // together games wait for the sibling
+  }
+  // Played alone (from the Play menu): a private game on this iPad. Together: shared with the sibling.
+  const mode = (kid, solo) => ({ L: solo ? soloLive : live, n: (name) => (solo ? `${name}-${kid.id}` : name) });
+  function waiting(kid) {
+    const sib = k.others(kid)[0];
+    const box = app.querySelector('.together-status');
+    if (box && !box.dataset.shown)
+      box.innerHTML = `<p class="backup-status">👋 Open this game on ${esc(sib?.name || 'the other')}'s iPad too, then tap again. To play right now, try the 🤖 robot games in the Play menu.</p>`;
+    say(`Open this game on ${sib?.name || 'the other'}'s iPad too!`);
   }
   const nextOf = (players, id) => players[(players.indexOf(id) + 1) % players.length];
   const chips = (ids, scores = null, active = null) =>
@@ -66,7 +76,9 @@ export function moreGames(k, { frame, partnerOf }) {
     chime([523.25, 659.25, 783.99, 1046.5, 1318.5]);
   };
   // Keep a shared record in sync, showing our own change right away.
-  function sync(name, fail, onChange) {
+  function sync(M, base, fail, onChange) {
+    const name = M.n(base);
+    const live = M.L;
     let rec = {};
     let heard = false;
     onCleanup(
@@ -104,15 +116,17 @@ export function moreGames(k, { frame, partnerOf }) {
   const LINES = [[0, 1, 2], [3, 4, 5], [6, 7, 8], [0, 3, 6], [1, 4, 7], [2, 5, 8], [0, 4, 8], [2, 4, 6]];
   const lineOf = (marks) => LINES.find(([a, b, c]) => marks[a] && marks[a] === marks[b] && marks[a] === marks[c]) || null;
 
-  function ttt(kid) {
+  function ttt(kid, solo = false) {
+    const M = mode(kid, solo);
     const { fail, here } = frame(
       kid,
       '⭕ Tic-tac-toe',
-      `<div class="mem-head"></div><div class="ttt-grid"></div><div class="row"><button class="btn ghost" data-new>🔁 New game</button></div>`
+      `<div class="mem-head"></div><div class="ttt-grid"></div><div class="row"><button class="btn ghost" data-new>🔁 New game</button></div>`,
+      solo
     );
     let cheered = null;
     let botAt = null;
-    const s = sync('ttt', fail, changed);
+    const s = sync(M, 'ttt', fail, changed);
 
     function changed(rec) {
       const head = app.querySelector('.mem-head');
@@ -174,7 +188,9 @@ export function moreGames(k, { frame, partnerOf }) {
     listen((e) => {
       if (e.target.closest('[data-new]')) {
         const rec = s.get();
-        const players = playersFor(kid, here, true);
+        const players = playersFor(kid, here, true, solo);
+
+        if (!players) return waiting(kid);
         // Take turns going first.
         const first = rec.first && players.includes(rec.first) ? nextOf(players, rec.first) : kid.id;
         const sameTeam = rec.players && players.every((p) => rec.players.includes(p));
@@ -196,15 +212,16 @@ export function moreGames(k, { frame, partnerOf }) {
   const REMEMBER_MS = 10000;
   const PEEK_MS = 3000;
 
-  function copy(kid) {
-    const { fail, here } = frame(kid, '🎨 Copy my picture', `<div class="mem-head"></div><div class="copy-area"></div>${RESTART}`);
+  function copy(kid, solo = false) {
+    const M = mode(kid, solo);
+    const { fail, here } = frame(kid, '🎨 Copy my picture', `<div class="mem-head"></div><div class="copy-area"></div>${RESTART}`, solo);
     let color = 0;
     let draft = null; // the maker's picture while making it (only on the maker's iPad)
     let cheered = null;
     let robotRound = null;
     let sendTimer = null;
     let view = null; // what the remember round is showing: 'show', 'peek' or 'hide'
-    const s = sync('copy', fail, changed);
+    const s = sync(M, 'copy', fail, changed);
     onCleanup(() => clearTimeout(sendTimer));
 
     const blank = (n) => Array(n * n).fill(-1);
@@ -233,7 +250,9 @@ export function moreGames(k, { frame, partnerOf }) {
 
     function newRound(maker, size) {
       const rec = s.get();
-      const players = playersFor(kid, here, true);
+      const players = playersFor(kid, here, true, solo);
+
+      if (!players) return waiting(kid);
       const n = size || rec.size || 3;
       draft = maker === kid.id ? blank(n) : null;
       const r = { id: uid(), players, maker, size: n, pattern: blank(n), copy: blank(n), phase: 'make', mode: rec.mode || 'look' };
@@ -422,24 +441,27 @@ export function moreGames(k, { frame, partnerOf }) {
           sendTimer = setTimeout(() => {
             sendTimer = null;
             const r = s.get();
-            if (r.phase === 'copy') live.update('copy', { copy: r.copy }).catch(fail);
+            if (r.phase === 'copy') M.L.update(M.n('copy'), { copy: r.copy }).catch(fail);
           }, 250);
       }
     });
   }
 
   /* ---------- Hide and seek ---------- */
-  function hide(kid) {
-    const { fail, here } = frame(kid, '🌳 Hide and seek', `<div class="mem-head"></div><div class="hide-area"></div>${RESTART}`);
+  function hide(kid, solo = false) {
+    const M = mode(kid, solo);
+    const { fail, here } = frame(kid, '🌳 Hide and seek', `<div class="mem-head"></div><div class="hide-area"></div>${RESTART}`, solo);
     const N = 16; // a 4 × 4 field of bushes
     const dist = (a, b) => Math.abs((a % 4) - (b % 4)) + Math.abs(Math.floor(a / 4) - Math.floor(b / 4));
     let cheered = null;
     let robotRound = null;
     let spoken = 0;
-    const s = sync('hide', fail, changed);
+    const s = sync(M, 'hide', fail, changed);
 
     function newRound(hider) {
-      const players = playersFor(kid, here, true);
+      const players = playersFor(kid, here, true, solo);
+
+      if (!players) return waiting(kid);
       const r = { id: uid(), players, hider, animal: pick(ANIMALS), spot: -1, phase: 'hide', guesses: [] };
       if (hider === ROBOT.id) {
         r.spot = Math.floor(Math.random() * N);
@@ -531,7 +553,9 @@ export function moreGames(k, { frame, partnerOf }) {
       const rec = s.get();
       if (e.target.closest('[data-start]')) return newRound(kid.id);
       if (e.target.closest('[data-seekfirst]')) {
-        const players = playersFor(kid, here, true);
+        const players = playersFor(kid, here, true, solo);
+
+        if (!players) return waiting(kid);
         return newRound(players.find((p) => p !== kid.id) || ROBOT.id);
       }
       const h2 = e.target.closest('[data-hide]');
@@ -547,16 +571,19 @@ export function moreGames(k, { frame, partnerOf }) {
   const ANIMAL_NAMES = { '🐰': 'bunny', '🦊': 'fox', '🐶': 'puppy', '🐱': 'kitty', '🐼': 'panda', '🐸': 'frog', '🦄': 'unicorn', '🐵': 'monkey', '🐯': 'tiger', '🐨': 'koala' };
 
   /* ---------- Hot potato ---------- */
-  function potato(kid) {
-    const { fail, here } = frame(kid, '🥔 Hot potato', `<div class="mem-head"></div><div class="potato-area"></div>`);
+  function potato(kid, solo = false) {
+    const M = mode(kid, solo);
+    const { fail, here } = frame(kid, '🥔 Hot potato', `<div class="mem-head"></div><div class="potato-area"></div>`, solo);
     let cheered = null;
     let lastTick = 0;
     let robotAt = null;
     let readyFor = null;
-    const s = sync('potato', fail, changed);
+    const s = sync(M, 'potato', fail, changed);
 
     function start() {
-      const players = playersFor(kid, here, true);
+      const players = playersFor(kid, here, true, solo);
+
+      if (!players) return waiting(kid);
       s.reset({ id: uid(), players, holder: pick(players), explodeAt: Date.now() + 2000 + 8000 + Math.random() * 8000, startAt: Date.now() + 2000, throws: 0, popped: null });
     }
     function changed(rec) {
@@ -634,27 +661,29 @@ export function moreGames(k, { frame, partnerOf }) {
   }
 
   /* ---------- Build a tower ---------- */
-  function tower(kid) {
+  function tower(kid, solo = false) {
+    const M = mode(kid, solo);
     const { fail, here } = frame(
       kid,
       '🧱 Build a tower',
       `<div class="mem-head"></div>${RESTART}
       <div class="tower-wrap"><svg class="tower-svg" viewBox="0 0 100 140" preserveAspectRatio="xMidYMax meet"></svg></div>
-      <div class="row tower-buttons"></div>`
+      <div class="row tower-buttons"></div>`,
+      solo
     );
     const BH = 8; // block height
-    const s = sync('tower', fail, changed);
+    const s = sync(M, 'tower', fail, changed);
     let teamBest = 0;
     let cheered = null;
     let saidTurn = null;
     let recordGame = null;
     let raf = 0;
     const t0 = performance.now();
-    onCleanup(live.watch('towerbest', (b) => ((teamBest = b?.height || 0), changed(s.get())), fail));
+    if (!solo) onCleanup(live.watch('towerbest', (b) => ((teamBest = b?.height || 0), changed(s.get())), fail));
     onCleanup(() => cancelAnimationFrame(raf));
 
-    const solo = (rec) => (rec.players || []).length < 2;
-    const best = (rec) => (solo(rec) ? soloBest(kid.id, 'tower') : teamBest);
+    const alone = (rec) => (rec.players || []).length < 2;
+    const best = (rec) => (alone(rec) ? soloBest(kid.id, 'tower') : teamBest);
     const height = (rec) => Math.max(0, (rec.blocks || []).length - 1);
     // The swinging block's position: back and forth, a little faster as the tower grows.
     const swingX = (rec, w) => {
@@ -662,7 +691,9 @@ export function moreGames(k, { frame, partnerOf }) {
       return ((Math.sin(((performance.now() - t0) / 1000) * speed) + 1) / 2) * (100 - w);
     };
     function start() {
-      const players = playersFor(kid, here, false);
+      const players = playersFor(kid, here, false, solo);
+
+      if (!players) return waiting(kid);
       s.reset({ id: uid(), players, turn: kid.id, blocks: [{ x: 20, w: 60, k: '' }], over: false });
     }
     function draw() {
@@ -700,7 +731,7 @@ export function moreGames(k, { frame, partnerOf }) {
       else if (rec.over) btns.innerHTML = `<p class="mem-turn">${recordGame === rec.id ? '🎉 New record! ' : ''}${height(rec)} blocks high!</p><button class="btn big-btn" data-start>🔁 Build again</button>`;
       else if (rec.turn === kid.id) btns.innerHTML = `<button class="btn go big-btn drop-btn" data-drop>⬇️ DROP!</button>`;
       else btns.innerHTML = `<p class="mem-turn wait">${turnText(kid, rec.turn)}</p>`;
-      if (rec.id && !rec.over && rec.turn === kid.id && !solo(rec) && saidTurn !== `${rec.id}/${height(rec)}`) {
+      if (rec.id && !rec.over && rec.turn === kid.id && !alone(rec) && saidTurn !== `${rec.id}/${height(rec)}`) {
         saidTurn = `${rec.id}/${height(rec)}`;
         say('Your turn!');
       }
@@ -709,7 +740,7 @@ export function moreGames(k, { frame, partnerOf }) {
         const h = height(rec);
         const prev = best(rec);
         if (h > prev) {
-          if (solo(rec)) saveSoloBest(kid.id, 'tower', h);
+          if (alone(rec)) saveSoloBest(kid.id, 'tower', h);
           else live.update('towerbest', { height: h }).catch(fail);
           recordGame = rec.id;
           bigCheer('🧱');
@@ -742,10 +773,11 @@ export function moreGames(k, { frame, partnerOf }) {
   }
 
   /* ---------- Simon says ---------- */
-  function simon(kid) {
-    const { fail, here } = frame(kid, '🚦 Simon says', `<div class="mem-head"></div><div class="simon-area"></div><div class="row simon-buttons"></div>`);
+  function simon(kid, solo = false) {
+    const M = mode(kid, solo);
+    const { fail, here } = frame(kid, '🚦 Simon says', `<div class="mem-head"></div><div class="simon-area"></div><div class="row simon-buttons"></div>`, solo);
     const STEP = 850; // ms per flash in the pattern
-    const s = sync('simon', fail, changed);
+    const s = sync(M, 'simon', fail, changed);
     let teamBest = 0;
     let lit = -1;
     let litUntil = 0;
@@ -753,16 +785,18 @@ export function moreGames(k, { frame, partnerOf }) {
     let seenInput = 0;
     let cheered = null;
     let saidGo = null;
-    onCleanup(live.watch('simonbest', (b) => ((teamBest = b?.score || 0), changed(s.get())), fail));
+    if (!solo) onCleanup(live.watch('simonbest', (b) => ((teamBest = b?.score || 0), changed(s.get())), fail));
 
-    const solo = (rec) => (rec.players || []).length < 2;
-    const best = (rec) => (solo(rec) ? soloBest(kid.id, 'simon') : teamBest);
+    const alone = (rec) => (rec.players || []).length < 2;
+    const best = (rec) => (alone(rec) ? soloBest(kid.id, 'simon') : teamBest);
     // In a pair, the first player has red and blue, the second green and yellow.
-    const myPads = (rec) => (solo(rec) ? [0, 1, 2, 3] : rec.players[0] === kid.id ? [0, 1] : [2, 3]);
+    const myPads = (rec) => (alone(rec) ? [0, 1, 2, 3] : rec.players[0] === kid.id ? [0, 1] : [2, 3]);
     const score = (rec) => Math.max(0, (rec.seq || []).length - 1);
     const inputOpen = (rec) => rec.id && !rec.fail && Date.now() >= rec.startAt + rec.seq.length * STEP;
     function start() {
-      const players = playersFor(kid, here, false);
+      const players = playersFor(kid, here, false, solo);
+
+      if (!players) return waiting(kid);
       s.reset({ id: uid(), players, seq: [Math.floor(Math.random() * 4)], startAt: Date.now() + 1500, input: [], fail: false });
     }
     function flash(p, ms = 450) {
@@ -777,7 +811,7 @@ export function moreGames(k, { frame, partnerOf }) {
       if (!area || !rec.id) return;
       const mine = myPads(rec);
       const on = Date.now() < litUntil ? lit : -1;
-      area.innerHTML = `<div class="simon-pads${solo(rec) ? ' all' : ''}">${PADS.map((p, i) =>
+      area.innerHTML = `<div class="simon-pads${alone(rec) ? ' all' : ''}">${PADS.map((p, i) =>
         `<button class="simon-pad${mine.includes(i) ? ' mine' : ' theirs'}${on === i ? ' lit' : ''}" ${mine.includes(i) ? `data-pad="${i}"` : 'disabled'} style="--pad:${p.color}">${p.emoji}</button>`
       ).join('')}</div>`;
     }
@@ -802,7 +836,7 @@ export function moreGames(k, { frame, partnerOf }) {
           cheered = rec.id;
           const sc = score(rec);
           if (sc > best(rec)) {
-            if (solo(rec)) saveSoloBest(kid.id, 'simon', sc);
+            if (alone(rec)) saveSoloBest(kid.id, 'simon', sc);
             else live.update('simonbest', { score: sc }).catch(fail);
             bigCheer('🚦');
             say(`Oops! But you remembered ${sc}! A new record!`);
@@ -824,7 +858,7 @@ export function moreGames(k, { frame, partnerOf }) {
       }
       if (inputOpen(rec) && saidGo !== `${rec.id}/${rec.seq.length}`) {
         saidGo = `${rec.id}/${rec.seq.length}`;
-        later(() => say(solo(rec) ? 'Your turn!' : 'Your turn! Work together!'), 500);
+        later(() => say(alone(rec) ? 'Your turn!' : 'Your turn! Work together!'), 500);
       }
       if (lit >= 0 && now >= litUntil) {
         lit = -1;
@@ -850,5 +884,18 @@ export function moreGames(k, { frame, partnerOf }) {
     });
   }
 
-  return { ttt, copy, hide, potato, tower, simon };
+  return {
+    ttt,
+    copy,
+    hide,
+    potato,
+    tower,
+    simon,
+    soloTtt: (kid) => ttt(kid, true),
+    soloCopy: (kid) => copy(kid, true),
+    soloHide: (kid) => hide(kid, true),
+    soloPotato: (kid) => potato(kid, true),
+    soloTower: (kid) => tower(kid, true),
+    soloSimon: (kid) => simon(kid, true),
+  };
 }

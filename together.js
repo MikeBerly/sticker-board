@@ -841,7 +841,7 @@ export function togetherGames(k) {
   }
 
   return {
-    ...moreGames(k, { frame, partnerOf }), // Tic-tac-toe, Copy my picture, Hide and seek, Hot potato, Build a tower, Simon says
+    ...moreGames(k, { frame, partnerOf, soloLive }), // Tic-tac-toe, Copy my picture, Hide and seek, Hot potato, Build a tower, Simon says
     memory,
     spot,
     pong,

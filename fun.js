@@ -224,7 +224,9 @@ export function createFun(ctx) {
       <h2 class="fun-h">🔢 Numbers</h2>
       <div class="fun-tiles">${games(['count', 'fill', 'more', 'pop', 'add'])}</div>
       <h2 class="fun-h">🧩 Puzzles</h2>
-      <div class="fun-tiles">${games(['memory', 'spot', 'race'])}</div>
+      <div class="fun-tiles">${games(['memory', 'spot', 'race', 'tower', 'simon'])}</div>
+      <h2 class="fun-h">🤖 Play the robot</h2>
+      <div class="fun-tiles">${games(['ttt', 'copy', 'hide', 'potato'])}</div>
       <h2 class="fun-h">🔤 Letters</h2>
       <div class="fun-tiles">${games(['letter', 'sound', 'words'])}</div>`
     );
@@ -401,6 +403,12 @@ export function createFun(ctx) {
     memory: { name: 'Memory match', emoji: '🃏', run: (kid) => TOGETHER.soloMemory(kid) },
     spot: { name: 'Find the match', emoji: '👀', run: (kid) => TOGETHER.soloSpot(kid) },
     race: { name: 'Jar race', emoji: '⏱️', run: (kid) => TOGETHER.soloFill(kid) },
+    tower: { name: 'Build a tower', emoji: '🧱', run: (kid) => TOGETHER.soloTower(kid) },
+    simon: { name: 'Simon says', emoji: '🚦', run: (kid) => TOGETHER.soloSimon(kid) },
+    ttt: { name: 'Tic-tac-toe', emoji: '⭕', run: (kid) => TOGETHER.soloTtt(kid) },
+    copy: { name: 'Copy my picture', emoji: '🎨', run: (kid) => TOGETHER.soloCopy(kid) },
+    hide: { name: 'Hide and seek', emoji: '🌳', run: (kid) => TOGETHER.soloHide(kid) },
+    potato: { name: 'Hot potato', emoji: '🥔', run: (kid) => TOGETHER.soloPotato(kid) },
     pop: { name: 'Pop the bubbles', emoji: '🫧', run: (kid) => popGame(kid) },
 
     letter: {
