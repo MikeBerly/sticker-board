@@ -64,8 +64,56 @@ async function recover(projectId) {
   setTimeout(() => location.reload(), 300);
 }
 
+/*
+ * When an iPad is out of storage space, Firestore can't keep its offline copy ("The quota has been
+ * exceeded") and breaks. Then run Firestore from memory instead: syncing still works, and offline the app
+ * opens with this device's last copy (the local mirror). Tried again after a few days.
+ */
+const MEMORY_KEY = 'stickerBoard.firestoreMemoryCache';
+const MEMORY_DAYS = 3;
+const LOW_SPACE = 10 * 1024 * 1024; // less free than this for the site: don't try the offline copy
+const isQuota = (err) => err?.name === 'QuotaExceededError' || /quota/i.test(String(err?.message || err || ''));
+function memoryFlagged() {
+  for (const s of [() => localStorage, () => sessionStorage]) {
+    try {
+      const at = Number(s().getItem(MEMORY_KEY));
+      if (at && Date.now() - at < MEMORY_DAYS * 864e5) return true;
+    } catch {}
+  }
+  return false;
+}
+function flagMemory() {
+  let saved = false;
+  for (const s of [() => localStorage, () => sessionStorage]) {
+    try {
+      s().setItem(MEMORY_KEY, String(Date.now()));
+      saved = true;
+    } catch {}
+  }
+  return saved;
+}
+async function lowOnSpace() {
+  try {
+    const { quota, usage } = (await navigator.storage?.estimate?.()) || {};
+    return quota > 0 && quota - (usage || 0) < LOW_SPACE;
+  } catch {
+    return false;
+  }
+}
+
 export async function createFirebaseStore(config, familyId, { mirror: localMirror, preSync }) {
+  const inMemory = memoryFlagged() || (await lowOnSpace());
+  let switching = false;
   const onBroken = (err) => {
+    if (isQuota(err) && !inMemory) {
+      // Out of space: restart with Firestore in memory (once).
+      if (!switching && flagMemory()) {
+        switching = true;
+        console.warn('Storage is full; restarting with Firestore in memory');
+        setTimeout(() => location.reload(), 300);
+      }
+      return;
+    }
     if (isBroken(err)) recover(config.projectId);
   };
   window.addEventListener('error', (e) => onBroken(e.error || e.message));
@@ -88,7 +136,8 @@ export async function createFirebaseStore(config, familyId, { mirror: localMirro
   const db = F.initializeFirestore(app, {
     ignoreUndefinedProperties: true, // an empty field must never stop a save
     // Keeps a copy on the device so the board opens and works offline, then syncs later.
-    localCache: F.persistentLocalCache({ tabManager: F.persistentMultipleTabManager() }),
+    // On an iPad that's out of storage space, keep it in memory instead (see MEMORY_KEY above).
+    localCache: inMemory ? F.memoryLocalCache() : F.persistentLocalCache({ tabManager: F.persistentMultipleTabManager() }),
   });
   const familyRef = F.doc(db, 'families', familyId);
   const eventsCol = F.collection(familyRef, 'events');
@@ -108,8 +157,10 @@ export async function createFirebaseStore(config, familyId, { mirror: localMirro
     }
   }
 
+  if (inMemory) console.info('Firestore is running in memory on this device (low storage space)');
   const store = {
     name: 'synced',
+    inMemory,
     remoteEmpty: false,
 
     auth: {
