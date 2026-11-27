@@ -189,6 +189,7 @@ export function togetherGames(k) {
       }
     }
     onCleanup(L.watch(NAME, (r) => ((rec = r || {}), changed()), fail));
+    changed(); // show the start screen straight away (also if sync can't connect)
     later(() => say('Memory match! Find the pairs.'), 200);
 
     listen((e) => {
@@ -337,6 +338,7 @@ export function togetherGames(k) {
         fail
       )
     );
+    draw(); // show the start screen straight away (also if sync can't connect)
     later(() => say('Find the picture that is on both cards!'), 200);
 
     listen((e) => {

@@ -87,15 +87,22 @@ export async function createFirebaseStore(config, familyId, { mirror: localMirro
      */
     live: {
       shared: true,
+      // Never throws: if sync is broken on this iPad, errors go to onError (or the returned promise)
+      // so a game can still start and play against the robot.
       watch(name, cb, onError) {
-        return F.onSnapshot(
-          F.doc(familyRef, 'live', name),
-          (snap) => cb(snap.exists() ? snap.data() : {}),
-          (err) => onError?.(err)
-        );
+        try {
+          return F.onSnapshot(
+            F.doc(familyRef, 'live', name),
+            (snap) => cb(snap.exists() ? snap.data() : {}),
+            (err) => onError?.(err)
+          );
+        } catch (err) {
+          setTimeout(() => onError?.(err), 0);
+          return () => {};
+        }
       },
-      update: (name, fields) => F.setDoc(F.doc(familyRef, 'live', name), fields, { merge: true }),
-      reset: (name, rec) => F.setDoc(F.doc(familyRef, 'live', name), rec),
+      update: async (name, fields) => F.setDoc(F.doc(familyRef, 'live', name), fields, { merge: true }),
+      reset: async (name, rec) => F.setDoc(F.doc(familyRef, 'live', name), rec),
     },
 
     /** The copy saved on this device before syncing was turned on (used for the first upload). */
